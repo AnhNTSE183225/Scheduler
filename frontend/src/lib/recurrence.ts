@@ -133,34 +133,38 @@ export function describeRecurrence(r: ScheduleEventRecurrence | null, start: Dat
   return base;
 }
 
+export function safeHttpUrl(raw?: string | null): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    return parsed.href;
+  } catch {
+    return null;
+  }
+}
+
 export function isGoogleMapsShortlink(val: string): boolean {
-  if (!val) return false;
-  const trimmed = val.trim();
-  return (
-    /^https?:\/\/(maps\.app\.goo\.gl|goo\.gl\/maps|(www\.)?google\.[a-z.]+\/maps)/i.test(trimmed) ||
-    /^https?:\/\/waze\.com/i.test(trimmed)
-  );
+  const safe = safeHttpUrl(val);
+  if (!safe) return false;
+  try {
+    const parsed = new URL(safe);
+    const host = parsed.hostname.toLowerCase();
+    const path = parsed.pathname.toLowerCase();
+    if (host === 'maps.app.goo.gl') return true;
+    if (host === 'goo.gl' && path.startsWith('/maps')) return true;
+    if (host === 'waze.com' || host === 'www.waze.com') return true;
+    if (/^(www\.)?google\.[a-z]{2,3}(\.[a-z]{2})?$/.test(host) && path.startsWith('/maps')) {
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
 }
 
 export function googleMapsEmbedUrl(q: string): string {
   return `https://maps.google.com/maps?q=${encodeURIComponent(q)}&t=&z=14&ie=UTF8&iwloc=&output=embed`;
-}
-
-export function buildGoogleCalendarUrl(event: ScheduleEvent, occStart: Date, occEnd: Date): string {
-  const fmt = (d: Date) =>
-    d.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, 'Z');
-  const loc =
-    event.location?.kind === 'address'
-      ? event.location.address || ''
-      : event.location?.kind === 'link'
-      ? event.location.url || ''
-      : '';
-  const params = new URLSearchParams({
-    action: 'TEMPLATE',
-    text: event.title,
-    dates: `${fmt(occStart)}/${fmt(occEnd)}`,
-    details: event.description || '',
-    location: loc,
-  });
-  return `https://calendar.google.com/calendar/render?${params.toString()}`;
 }

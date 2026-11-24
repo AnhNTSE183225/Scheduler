@@ -1,5 +1,5 @@
-import { createSignal } from 'solid-js';
-import { fetchAuthConfig, fetchMe, postDevLogin, postLogout, type AuthConfig } from '@/api/auth';
+import { createSignal, untrack } from 'solid-js';
+import { fetchMe, postLogin, postLogout, postRegister } from '@/api/auth';
 import { getStoredToken, setStoredToken } from '@/api/client';
 import { createCalendarSpace, joinCalendarSpace } from '@/api/schedule';
 import type { CalendarSpace, EntityStatus, User } from '@/models/schedule';
@@ -10,13 +10,9 @@ const [user, setUser] = createSignal<User | null>(null);
 const [calendars, setCalendars] = createSignal<CalendarSpace[]>([]);
 const [activeCalendarId, setActiveCalendarId] = createSignal<string | null>(null);
 const [isAdmin, setIsAdmin] = createSignal<boolean>(false);
-const [authConfig, setAuthConfig] = createSignal<AuthConfig>({
-  google_enabled: false,
-  dev_login_enabled: true,
-});
 
 function transitionTo(next: EntityStatus, reason: string) {
-  const prev = status();
+  const prev = untrack(status);
   if (prev !== next) {
     console.info(`[FSM] Entity auth: ${prev} -> ${next} (Reason: ${reason})`);
     setStatus(next);
@@ -26,31 +22,16 @@ function transitionTo(next: EntityStatus, reason: string) {
 export const authStore = {
   status,
   errorMsg,
+  clearError: () => setErrorMsg(null),
   user,
   calendars,
   activeCalendarId,
   setActiveCalendarId,
   isAdmin,
-  authConfig,
 
   async bootstrap() {
-    transitionTo('loading', 'Checking auth config and stored session');
+    transitionTo('loading', 'Checking stored session');
     setErrorMsg(null);
-
-    try {
-      const url = new URL(window.location.href);
-      const tokenParam = url.searchParams.get('token');
-      if (tokenParam) {
-        setStoredToken(tokenParam);
-        url.searchParams.delete('token');
-        window.history.replaceState(null, '', url.pathname + url.search + url.hash);
-      }
-    } catch {}
-
-    try {
-      const cfg = await fetchAuthConfig();
-      setAuthConfig(cfg);
-    } catch {}
 
     const token = getStoredToken();
     if (!token) {
@@ -80,21 +61,41 @@ export const authStore = {
     }
   },
 
-  async loginDev(name: string, email?: string) {
-    transitionTo('loading', 'Signing in via quick profile');
+  async register(displayName: string, username: string, password: string) {
+    transitionTo('loading', 'Registering new account');
     setErrorMsg(null);
     try {
-      const res = await postDevLogin(name, email);
+      const res = await postRegister(displayName, username, password);
       setStoredToken(res.data.token);
       setUser(res.data.user);
       setCalendars(res.data.calendars);
+      setIsAdmin(Boolean(res.data.isAdmin));
       if (res.data.calendars.length > 0) {
         setActiveCalendarId(res.data.calendars[0].id);
       }
-      transitionTo('active', 'Quick profile signed in');
+      transitionTo('active', 'Account registered');
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : 'Registration failed');
+      transitionTo('error', 'Registration failed');
+    }
+  },
+
+  async login(username: string, password: string) {
+    transitionTo('loading', 'Signing in with username and password');
+    setErrorMsg(null);
+    try {
+      const res = await postLogin(username, password);
+      setStoredToken(res.data.token);
+      setUser(res.data.user);
+      setCalendars(res.data.calendars);
+      setIsAdmin(Boolean(res.data.isAdmin));
+      if (res.data.calendars.length > 0) {
+        setActiveCalendarId(res.data.calendars[0].id);
+      }
+      transitionTo('active', 'Signed in');
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'Sign-in failed');
-      transitionTo('error', 'Quick sign-in failed');
+      transitionTo('error', 'Sign-in failed');
     }
   },
 

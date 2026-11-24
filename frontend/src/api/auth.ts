@@ -1,35 +1,41 @@
 import { apiFetch } from './client';
 import type { CalendarSpace, StateMachineDTO, User } from '@/models/schedule';
 
-export interface AuthConfig {
-  google_enabled: boolean;
-  dev_login_enabled: boolean;
-}
-
 export interface MePayload {
   user: User;
   calendars: CalendarSpace[];
   isAdmin: boolean;
 }
 
-export interface DevLoginPayload {
+export interface AuthPayload {
   token: string;
   user: User;
   calendars: CalendarSpace[];
-}
-
-export function fetchAuthConfig(): Promise<AuthConfig> {
-  return apiFetch<AuthConfig>('/auth/config');
+  isAdmin: boolean;
 }
 
 export function fetchMe(): Promise<StateMachineDTO<MePayload>> {
   return apiFetch<StateMachineDTO<MePayload>>('/me');
 }
 
-export function postDevLogin(name: string, email?: string): Promise<StateMachineDTO<DevLoginPayload>> {
-  return apiFetch<StateMachineDTO<DevLoginPayload>>('/auth/dev-login', {
+export function postRegister(
+  displayName: string,
+  username: string,
+  password: string,
+): Promise<StateMachineDTO<AuthPayload>> {
+  return apiFetch<StateMachineDTO<AuthPayload>>('/auth/register', {
     method: 'POST',
-    body: JSON.stringify({ name, email: email || undefined }),
+    body: JSON.stringify({ displayName, username, password }),
+  });
+}
+
+export function postLogin(
+  username: string,
+  password: string,
+): Promise<StateMachineDTO<AuthPayload>> {
+  return apiFetch<StateMachineDTO<AuthPayload>>('/auth/login', {
+    method: 'POST',
+    body: JSON.stringify({ username, password }),
   });
 }
 

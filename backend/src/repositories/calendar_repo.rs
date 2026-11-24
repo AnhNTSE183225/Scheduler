@@ -71,8 +71,8 @@ impl CalendarRepository for SqliteCalendarRepository {
 
         let now = now_sec();
         let cal_id = format!("cal-{}", uuid::Uuid::new_v4().simple());
-        let invite_code = format!("join-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
-        let name = format!("{}'s Schedule", user.name);
+        let invite_code = format!("per-{}", uuid::Uuid::new_v4().simple());
+        let name = format!("{}'s Schedule", user.display_name);
 
         sqlx::query(
             r#"
@@ -156,7 +156,7 @@ impl CalendarRepository for SqliteCalendarRepository {
     ) -> Result<CalendarSpace, AppError> {
         let now = now_sec();
         let cal_id = format!("cal-{}", uuid::Uuid::new_v4().simple());
-        let invite_code = format!("grp-{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        let invite_code = format!("grp-{}", uuid::Uuid::new_v4().simple());
 
         sqlx::query(
             r#"
@@ -199,7 +199,7 @@ impl CalendarRepository for SqliteCalendarRepository {
         invite_code: &str,
     ) -> Result<Option<CalendarSpace>, AppError> {
         let row = sqlx::query(
-            "SELECT id, name, description, invite_code, owner_id, is_personal, created_at FROM calendars WHERE invite_code = ?",
+            "SELECT id, name, description, invite_code, owner_id, is_personal, created_at FROM calendars WHERE invite_code = ? AND is_personal = 0",
         )
         .bind(invite_code.trim())
         .fetch_optional(&self.pool)
@@ -226,11 +226,11 @@ impl CalendarRepository for SqliteCalendarRepository {
     async fn list_members(&self, calendar_id: &str) -> Result<Vec<CalendarMember>, AppError> {
         let rows = sqlx::query(
             r#"
-            SELECT u.id, u.name, u.email, u.avatar, m.role
+            SELECT u.id, u.display_name, u.username, u.avatar, m.role
             FROM calendar_members m
             INNER JOIN users u ON u.id = m.user_id
             WHERE m.calendar_id = ?
-            ORDER BY CASE WHEN m.role = 'owner' THEN 0 ELSE 1 END, u.name ASC
+            ORDER BY CASE WHEN m.role = 'owner' THEN 0 ELSE 1 END, u.display_name ASC
             "#,
         )
         .bind(calendar_id)
@@ -241,8 +241,8 @@ impl CalendarRepository for SqliteCalendarRepository {
             .into_iter()
             .map(|r| CalendarMember {
                 id: r.get("id"),
-                name: r.get("name"),
-                email: r.get("email"),
+                name: r.get("display_name"),
+                username: r.get("username"),
                 avatar: r.get("avatar"),
                 role: r.get("role"),
             })

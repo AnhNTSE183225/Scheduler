@@ -3,10 +3,14 @@ pub mod calendar_repo;
 pub mod event_repo;
 pub mod push_repo;
 
-use sqlx::{SqlitePool, sqlite::SqlitePoolOptions};
+use sqlx::{
+    SqlitePool,
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
+};
 use std::fs;
 use std::path::Path;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::str::FromStr;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 pub fn now_sec() -> f64 {
     SystemTime::now()
@@ -19,26 +23,29 @@ pub fn now_sec() -> f64 {
 pub async fn init_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
     let _ = fs::create_dir_all(Path::new("data"));
 
+    let connect_opts = SqliteConnectOptions::from_str(database_url)?
+        .create_if_missing(true)
+        .journal_mode(SqliteJournalMode::Wal)
+        .synchronous(SqliteSynchronous::Normal)
+        .busy_timeout(Duration::from_secs(10));
+
     let pool = SqlitePoolOptions::new()
         .max_connections(10)
-        .connect(database_url)
+        .connect_with(connect_opts)
         .await?;
-
-    sqlx::query("PRAGMA journal_mode=WAL;").execute(&pool).await?;
-    sqlx::query("PRAGMA synchronous=NORMAL;").execute(&pool).await?;
-    sqlx::query("PRAGMA busy_timeout=10000;").execute(&pool).await?;
 
     sqlx::query(
         r#"
         CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
-            email TEXT,
-            name TEXT NOT NULL,
+            username TEXT UNIQUE NOT NULL,
+            display_name TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
             avatar TEXT,
-            provider TEXT NOT NULL,
             created_at REAL NOT NULL,
             updated_at REAL NOT NULL
         );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username ON users(username);
 
         CREATE TABLE IF NOT EXISTS sessions (
             session_id TEXT PRIMARY KEY,

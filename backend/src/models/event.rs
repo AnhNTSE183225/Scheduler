@@ -100,6 +100,8 @@ pub struct RespondEventRequest {
 pub struct GuestRespondRequest {
     #[validate(length(min = 1, max = 80))]
     pub name: String,
+    #[serde(rename = "guestId")]
+    pub guest_id: Option<String>,
     pub key: String,
     pub status: String, // "accepted" | "tentative" | "declined"
     pub scope: Option<String>,

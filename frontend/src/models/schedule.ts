@@ -19,10 +19,9 @@ export type EventCategory = 'gaming' | 'food' | 'outdoor' | 'other';
 
 export interface User {
   id: string;
-  email: string | null;
-  name: string;
+  username: string;
+  displayName: string;
   avatar: string | null;
-  provider: string;
 }
 
 export interface CalendarSpace {

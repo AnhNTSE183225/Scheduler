@@ -4,10 +4,17 @@ use validator::Validate;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct User {
     pub id: String,
-    pub email: Option<String>,
-    pub name: String,
+    pub username: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
     pub avatar: Option<String>,
-    pub provider: String, // "google" | "dev" | "guest"
+}
+
+/// Internal DB representation including the Argon2id password hash (never serialized to HTTP).
+#[derive(Debug, Clone)]
+pub struct StoredUser {
+    pub user: User,
+    pub password_hash: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -18,23 +25,21 @@ pub struct UserSession {
     pub expires_at: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct GoogleUserInfo {
-    pub sub: String,
-    pub name: Option<String>,
-    pub email: Option<String>,
-    pub picture: Option<String>,
+#[derive(Debug, Clone, Deserialize, Validate)]
+pub struct RegisterRequest {
+    #[serde(rename = "displayName")]
+    #[validate(length(min = 1, max = 80))]
+    pub display_name: String,
+    #[validate(length(min = 3, max = 32))]
+    pub username: String,
+    #[validate(length(min = 8, max = 128))]
+    pub password: String,
 }
 
 #[derive(Debug, Clone, Deserialize, Validate)]
-pub struct DevLoginRequest {
-    #[validate(length(min = 1, max = 80))]
-    pub name: String,
-    pub email: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct AuthConfigResponse {
-    pub google_enabled: bool,
-    pub dev_login_enabled: bool,
+pub struct LoginRequest {
+    #[validate(length(min = 3, max = 32))]
+    pub username: String,
+    #[validate(length(min = 1, max = 128))]
+    pub password: String,
 }

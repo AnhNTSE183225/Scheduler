@@ -2,10 +2,8 @@ import { For, Show, createMemo, createSignal, onMount } from 'solid-js';
 import { addMinutes, format, parseISO } from 'date-fns';
 import {
   ArrowLeft,
-  CalendarPlus,
   Check,
   Clock,
-  Download,
   ExternalLink,
   HelpCircle,
   Link2,
@@ -21,9 +19,9 @@ import { AvatarBadge } from '@/components/schedule/AvatarBadge';
 import { PwaInstallBanner } from '@/components/schedule/PwaInstallBanner';
 import { SlidingSegmentedControl } from '@/components/ui/SlidingSegmentedControl';
 import {
-  buildGoogleCalendarUrl,
   describeRecurrence,
   occurrenceKey,
+  safeHttpUrl,
   summarizeResponses,
 } from '@/lib/recurrence';
 import type { EntityStatus, RsvpScope, RsvpStatus } from '@/models/schedule';
@@ -40,6 +38,8 @@ export function PublicEventPage(props: { shareToken: string; onBackHome: () => v
   const [rsvpBusy, setRsvpBusy] = createSignal(false);
   const [rsvpFeedback, setRsvpFeedback] = createSignal('');
 
+  const guestStorageKey = () => `pulseplan_guest_${props.shareToken}`;
+
   onMount(async () => {
     setStatus('loading');
     try {
@@ -47,8 +47,15 @@ export function PublicEventPage(props: { shareToken: string; onBackHome: () => v
       setPayload(res.data);
       const u = authStore.user();
       if (u) {
-        setGuestName(u.name);
+        setGuestName(u.displayName);
         setMyResponderId(u.id);
+      } else {
+        const storedGuestId = localStorage.getItem(guestStorageKey());
+        if (storedGuestId) {
+          setMyResponderId(storedGuestId);
+          const storedName = res.data.event.guestNames?.[storedGuestId];
+          if (storedName) setGuestName(storedName);
+        }
       }
       setStatus('active');
     } catch (err: unknown) {
@@ -89,15 +96,20 @@ export function PublicEventPage(props: { shareToken: string; onBackHome: () => v
     setRsvpBusy(true);
     setRsvpFeedback('');
     try {
+      const existingGuestId = !u && myResponderId().startsWith('guest:') ? myResponderId() : undefined;
       const res = await postPublicRespond(
         props.shareToken,
-        guestName().trim() || u?.name || 'Guest',
+        guestName().trim() || u?.displayName || 'Guest',
         occKeyStr(),
         rsvp,
         p.event.recurrence ? scope() : 'series',
+        existingGuestId,
       );
       setPayload({ ...p, event: res.data.event });
       setMyResponderId(res.data.responderId);
+      if (!u && res.data.responderId.startsWith('guest:')) {
+        localStorage.setItem(guestStorageKey(), res.data.responderId);
+      }
       setRsvpFeedback(`Saved your response: ${rsvp}!`);
     } catch (err: unknown) {
       setRsvpFeedback(err instanceof Error ? err.message : 'Failed to save RSVP');
@@ -138,7 +150,6 @@ export function PublicEventPage(props: { shareToken: string; onBackHome: () => v
           const ev = () => p().event;
           const catMeta = () => getCategoryMeta(ev().category, ev().title, ev().description);
           const CatIcon = catMeta().icon;
-          const gCalUrl = () => buildGoogleCalendarUrl(ev(), occStart(), occEnd());
           const myStatus = () => {
             const rid = myResponderId();
             if (!rid) return null;
@@ -151,8 +162,8 @@ export function PublicEventPage(props: { shareToken: string; onBackHome: () => v
 
           return (
             <article class="glass-surface overflow-hidden">
-              <Show when={ev().imageUrl}>
-                <img src={ev().imageUrl!} alt="" class="w-full h-44 object-cover" />
+              <Show when={safeHttpUrl(ev().imageUrl)}>
+                {(imgSrc) => <img src={imgSrc()} alt="" class="w-full h-44 object-cover" />}
               </Show>
 
               <div class="p-6 space-y-5">
@@ -186,42 +197,25 @@ export function PublicEventPage(props: { shareToken: string; onBackHome: () => v
                   <p class="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">{ev().description}</p>
                 </Show>
 
-                <div class="flex flex-wrap gap-2">
-                  <a
-                    href={gCalUrl()}
-                    target="_blank"
-                    rel="noreferrer"
-                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card/70 hover:bg-accent text-xs font-medium"
-                  >
-                    <CalendarPlus size={13} class="text-primary" />
-                    Add to Google Calendar
-                  </a>
-                  <a
-                    href={`/api/public/events/${encodeURIComponent(props.shareToken)}/ics`}
-                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card/70 hover:bg-accent text-xs font-medium"
-                  >
-                    <Download size={13} class="text-primary" />
-                    Download .ics
-                  </a>
-                </div>
-
                 <Show when={ev().location}>
                   {(loc) => (
                     <div class="detail-block">
                       <Show when={loc().kind === 'address' && loc().address}>
                         <LocationMapPreview address={loc().address!} />
                       </Show>
-                      <Show when={loc().kind === 'link' && loc().url}>
-                        <a
-                          href={loc().url}
-                          target="_blank"
-                          rel="noreferrer"
-                          class="flex items-center gap-2 text-sm text-primary font-medium hover:underline"
-                        >
-                          <Link2 size={15} />
-                          <span class="truncate">{loc().url}</span>
-                          <ExternalLink size={12} />
-                        </a>
+                      <Show when={loc().kind === 'link' ? safeHttpUrl(loc().url) : null}>
+                        {(safeLocUrl) => (
+                          <a
+                            href={safeLocUrl()}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="flex items-center gap-2 text-sm text-primary font-medium hover:underline"
+                          >
+                            <Link2 size={15} />
+                            <span class="truncate">{safeLocUrl()}</span>
+                            <ExternalLink size={12} />
+                          </a>
+                        )}
                       </Show>
                     </div>
                   )}

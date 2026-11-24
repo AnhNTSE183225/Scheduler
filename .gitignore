@@ -8,6 +8,9 @@
 # Rust Backend
 backend/target/
 backend/data/
+backend/logs/
+backend/*.pid
+backend/.env
 backend/config/local.yaml
 backend/config/*.local.yaml
 
@@ -25,4 +28,6 @@ Thumbs.db
 .agents/
 .cursor/
 .harness/
+CHECKLIST.md
 AGENTS.md
+CHECKLIST.md

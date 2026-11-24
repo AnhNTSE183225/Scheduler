@@ -62,7 +62,7 @@ export function GroupModal(props: {
       </div>
 
       <div class="p-6 space-y-5 overflow-y-auto">
-        <Show when={activeCal()}>
+        <Show when={activeCal() && !activeCal()!.isPersonal ? activeCal() : undefined}>
           {(cal) => (
             <div class="detail-block flex items-center justify-between gap-3">
               <div class="min-w-0">

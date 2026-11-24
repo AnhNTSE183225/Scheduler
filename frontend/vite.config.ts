@@ -19,17 +19,21 @@ export default defineConfig({
     },
   },
   server: {
+    host: true,
     port: 5173,
+    allowedHosts: [".ts.net", "localhost", "127.0.0.1"],
     proxy: {
       "/api": {
         target: "http://127.0.0.1:8080",
         changeOrigin: true,
+        agent: keepAliveAgent,
       },
     },
   },
   preview: {
     host: true,
     port: 5173,
+    allowedHosts: [".ts.net", "localhost", "127.0.0.1"],
     proxy: {
       "/api": {
         target: "http://127.0.0.1:8080",

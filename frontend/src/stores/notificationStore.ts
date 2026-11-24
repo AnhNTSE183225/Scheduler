@@ -1,4 +1,4 @@
-import { createSignal } from 'solid-js';
+import { createSignal, untrack } from 'solid-js';
 import {
   fetchVapidPublicKey,
   postPublicPushSubscribe,
@@ -10,6 +10,7 @@ import {
   detectInstallMode,
   registerServiceWorker,
   urlBase64ToUint8Array,
+  withTimeout,
   type BeforeInstallPromptEvent,
   type PlatformInstallMode,
 } from '@/lib/pwa';
@@ -25,7 +26,7 @@ const [errorMsg, setErrorMsg] = createSignal<string | null>(null);
 const [feedbackMsg, setFeedbackMsg] = createSignal<string | null>(null);
 
 function transitionTo(next: EntityStatus, reason: string) {
-  const prev = status();
+  const prev = untrack(status);
   if (prev !== next) {
     console.info(`[FSM] Entity push: ${prev} -> ${next} (Reason: ${reason})`);
     setStatus(next);
@@ -59,16 +60,24 @@ export const notificationStore = {
     }
 
     setPermission(Notification.permission);
-    const reg = await registerServiceWorker();
-    if (!reg) {
-      transitionTo('error', 'Service Worker unavailable');
-      return;
-    }
+    try {
+      const reg = await registerServiceWorker();
+      if (!reg) {
+        transitionTo('idle', 'Service Worker not yet active; ready for opt-in');
+        return;
+      }
 
-    const existing = await reg.pushManager.getSubscription();
-    if (existing && Notification.permission === 'granted') {
-      transitionTo('active', 'Existing Web Push subscription detected');
-    } else {
+      const existing = await withTimeout(
+        reg.pushManager.getSubscription(),
+        4000,
+        'Timed out checking existing push subscription',
+      );
+      if (existing && Notification.permission === 'granted') {
+        transitionTo('active', 'Existing Web Push subscription detected');
+      } else {
+        transitionTo('idle', 'Ready for user opt-in');
+      }
+    } catch {
       transitionTo('idle', 'Ready for user opt-in');
     }
   },
@@ -84,37 +93,63 @@ export const notificationStore = {
   },
 
   async enablePush(publicShareToken?: string) {
+    if (status() === 'loading') return;
+
     transitionTo('loading', 'Requesting Notification permission and VAPID subscription');
     setErrorMsg(null);
     setFeedbackMsg(null);
 
     try {
+      if (typeof window !== 'undefined' && !window.isSecureContext) {
+        throw new Error('Push notifications require HTTPS or localhost.');
+      }
       if (typeof Notification === 'undefined' || !('PushManager' in window)) {
         throw new Error('This browser context does not support Web Push. On iOS, add to Home Screen first.');
       }
 
-      const perm = await Notification.requestPermission();
-      setPermission(perm);
-      if (perm !== 'granted') {
-        transitionTo('paused', `Permission ${perm}`);
-        setErrorMsg('Notification permission was blocked.');
+      if (Notification.permission === 'denied') {
+        transitionTo('paused', 'Permission previously denied');
+        setErrorMsg('Notifications are blocked for this site. Re-enable them in your browser site settings.');
         return;
+      }
+
+      let perm: NotificationPermission = Notification.permission;
+      if (perm !== 'granted') {
+        perm = await Notification.requestPermission();
+        setPermission(perm);
+        if (perm !== 'granted') {
+          transitionTo('paused', `Permission ${perm}`);
+          setErrorMsg(
+            perm === 'denied'
+              ? 'Notification permission was blocked.'
+              : 'Notification permission prompt was dismissed.',
+          );
+          return;
+        }
       }
 
       const reg = await registerServiceWorker();
       if (!reg) {
-        throw new Error('Failed to register Service Worker.');
+        throw new Error('Service Worker failed to activate. Reload the page and try again.');
       }
 
       const { publicKey } = await fetchVapidPublicKey();
       const appServerKey = urlBase64ToUint8Array(publicKey);
 
-      let sub = await reg.pushManager.getSubscription();
+      let sub = await withTimeout(
+        reg.pushManager.getSubscription(),
+        5000,
+        'Timed out reading browser push subscription.',
+      );
       if (!sub) {
-        sub = await reg.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: appServerKey.buffer as ArrayBuffer,
-        });
+        sub = await withTimeout(
+          reg.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: appServerKey as BufferSource,
+          }),
+          10000,
+          'Push service timed out while registering this browser.',
+        );
       }
 
       const json = sub.toJSON();

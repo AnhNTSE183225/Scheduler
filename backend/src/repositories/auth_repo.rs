@@ -1,18 +1,29 @@
 use crate::error::AppError;
-use crate::models::auth::{User, UserSession};
+use crate::models::auth::{StoredUser, User, UserSession};
 use crate::repositories::now_sec;
 use sqlx::{Row, SqlitePool};
 use std::future::Future;
 
 pub trait AuthRepository: Send + Sync {
-    fn upsert_user(&self, user: &User) -> impl Future<Output = Result<(), AppError>> + Send;
+    fn create_user(
+        &self,
+        user: &User,
+        password_hash: &str,
+    ) -> impl Future<Output = Result<(), AppError>> + Send;
+    fn find_by_username(
+        &self,
+        username: &str,
+    ) -> impl Future<Output = Result<Option<StoredUser>, AppError>> + Send;
     fn create_session(
         &self,
         session_id: &str,
         user: &User,
         ttl_hours: i64,
     ) -> impl Future<Output = Result<UserSession, AppError>> + Send;
-    fn get_session(&self, session_id: &str) -> impl Future<Output = Result<Option<UserSession>, AppError>> + Send;
+    fn get_session(
+        &self,
+        session_id: &str,
+    ) -> impl Future<Output = Result<Option<UserSession>, AppError>> + Send;
     fn delete_session(&self, session_id: &str) -> impl Future<Output = Result<(), AppError>> + Send;
 }
 
@@ -28,29 +39,55 @@ impl SqliteAuthRepository {
 }
 
 impl AuthRepository for SqliteAuthRepository {
-    async fn upsert_user(&self, user: &User) -> Result<(), AppError> {
+    async fn create_user(&self, user: &User, password_hash: &str) -> Result<(), AppError> {
         let now = now_sec();
-        sqlx::query(
+        let res = sqlx::query(
             r#"
-            INSERT INTO users (id, email, name, avatar, provider, created_at, updated_at)
+            INSERT INTO users (id, username, display_name, password_hash, avatar, created_at, updated_at)
             VALUES (?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id) DO UPDATE SET
-                email = COALESCE(excluded.email, users.email),
-                name = excluded.name,
-                avatar = COALESCE(excluded.avatar, users.avatar),
-                updated_at = excluded.updated_at
             "#,
         )
         .bind(&user.id)
-        .bind(&user.email)
-        .bind(&user.name)
+        .bind(&user.username)
+        .bind(&user.display_name)
+        .bind(password_hash)
         .bind(&user.avatar)
-        .bind(&user.provider)
         .bind(now)
         .bind(now)
         .execute(&self.pool)
+        .await;
+
+        match res {
+            Ok(_) => Ok(()),
+            Err(sqlx::Error::Database(db_err)) if db_err.is_unique_violation() => {
+                Err(AppError::Conflict("Username is already taken".to_string()))
+            }
+            Err(e) => Err(AppError::Database(e)),
+        }
+    }
+
+    async fn find_by_username(&self, username: &str) -> Result<Option<StoredUser>, AppError> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, username, display_name, password_hash, avatar
+            FROM users
+            WHERE username = ?
+            LIMIT 1
+            "#,
+        )
+        .bind(username)
+        .fetch_optional(&self.pool)
         .await?;
-        Ok(())
+
+        Ok(row.map(|r| StoredUser {
+            user: User {
+                id: r.get("id"),
+                username: r.get("username"),
+                display_name: r.get("display_name"),
+                avatar: r.get("avatar"),
+            },
+            password_hash: r.get("password_hash"),
+        }))
     }
 
     async fn create_session(
@@ -89,7 +126,7 @@ impl AuthRepository for SqliteAuthRepository {
 
     async fn get_session(&self, session_id: &str) -> Result<Option<UserSession>, AppError> {
         let row = sqlx::query(
-            "SELECT session_id, user_json, created_at, expires_at FROM sessions WHERE session_id = ?",
+            "SELECT session_id, user_json, created_at, expires_at, last_active FROM sessions WHERE session_id = ?",
         )
         .bind(session_id)
         .fetch_optional(&self.pool)
@@ -100,6 +137,7 @@ impl AuthRepository for SqliteAuthRepository {
         };
 
         let expires_at: f64 = row.get("expires_at");
+        let last_active: f64 = row.get("last_active");
         let now = now_sec();
         if now > expires_at {
             let _ = self.delete_session(session_id).await;
@@ -110,11 +148,14 @@ impl AuthRepository for SqliteAuthRepository {
         let user: User =
             serde_json::from_str(&user_json).map_err(|e| AppError::Internal(e.to_string()))?;
 
-        let _ = sqlx::query("UPDATE sessions SET last_active = ? WHERE session_id = ?")
-            .bind(now)
-            .bind(session_id)
-            .execute(&self.pool)
-            .await;
+        // Throttle last_active writes to once every 5 minutes so authenticated reads stay lock-free.
+        if now - last_active >= 300.0 {
+            let _ = sqlx::query("UPDATE sessions SET last_active = ? WHERE session_id = ?")
+                .bind(now)
+                .bind(session_id)
+                .execute(&self.pool)
+                .await;
+        }
 
         Ok(Some(UserSession {
             session_id: row.get("session_id"),

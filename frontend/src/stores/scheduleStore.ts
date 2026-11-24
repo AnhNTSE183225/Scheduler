@@ -1,5 +1,6 @@
-import { createSignal } from 'solid-js';
+import { createSignal, untrack } from 'solid-js';
 import { getStoredToken } from '@/api/client';
+import { postStreamTicket } from '@/api/notifications';
 import {
   fetchScheduleData,
   postRespondEvent,
@@ -26,8 +27,15 @@ const [liveToast, setLiveToast] = createSignal<string | null>(null);
 
 let eventSource: EventSource | null = null;
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let streamSeq = 0;
 
 function teardownStream() {
+  streamSeq += 1;
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+  }
   if (eventSource) {
     eventSource.close();
     eventSource = null;
@@ -39,7 +47,7 @@ function teardownStream() {
 }
 
 function transitionTo(next: EntityStatus, reason: string) {
-  const prev = status();
+  const prev = untrack(status);
   if (next === 'idle' || next === 'disconnected' || next === 'error') {
     teardownStream();
   }
@@ -81,37 +89,57 @@ export const scheduleStore = {
       setMembers(res.data.members || []);
       setCalendar(res.data.calendar || null);
       transitionTo('active', `Loaded ${res.data.events.length} events`);
-      scheduleStore.connectStream(calendarId);
+      void scheduleStore.connectStream(calendarId);
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'Failed to load schedule');
       transitionTo('error', 'Schedule load failed');
     }
   },
 
-  connectStream(calendarId: string) {
+  async connectStream(calendarId: string) {
     teardownStream();
-    const token = getStoredToken();
-    if (!token) return;
+    if (!getStoredToken()) return;
 
-    const es = new EventSource(`/api/stream/${encodeURIComponent(calendarId)}?token=${encodeURIComponent(token)}`);
-    es.addEventListener('schedule', (e: MessageEvent) => {
-      try {
-        const msg = JSON.parse(e.data) as SseNotificationEvent;
-        if (msg.kind === 'connected') return;
-        if (msg.kind === 'reminder' && msg.title) {
-          showToast(`${msg.title}${msg.message ? ` — ${msg.message}` : ''}`);
+    const mySeq = streamSeq;
+    try {
+      const ticketRes = await postStreamTicket(calendarId);
+      if (mySeq !== streamSeq) return;
+
+      const es = new EventSource(
+        `/api/stream/${encodeURIComponent(calendarId)}?ticket=${encodeURIComponent(ticketRes.data.ticket)}`,
+      );
+      es.addEventListener('schedule', (e: MessageEvent) => {
+        try {
+          const msg = JSON.parse(e.data) as SseNotificationEvent;
+          if (msg.kind === 'connected') return;
+          if (msg.kind === 'reminder' && msg.title) {
+            showToast(`${msg.title}${msg.message ? ` — ${msg.message}` : ''}`);
+          }
+          // Silently refresh events on remote mutations
+          void fetchScheduleData(calendarId).then((res) => {
+            setEvents(res.data.events || []);
+            setMembers(res.data.members || []);
+          });
+        } catch {}
+      });
+      es.onerror = () => {
+        // Tickets are single-use; close and request a fresh ticket on transient drop
+        es.close();
+        if (eventSource === es) {
+          eventSource = null;
         }
-        // Silently refresh events on remote mutations
-        void fetchScheduleData(calendarId).then((res) => {
-          setEvents(res.data.events || []);
-          setMembers(res.data.members || []);
-        });
-      } catch {}
-    });
-    es.onerror = () => {
-      // Browser auto-reconnects EventSource cleanly
-    };
-    eventSource = es;
+        if (mySeq === streamSeq && getStoredToken()) {
+          reconnectTimer = setTimeout(() => {
+            if (mySeq === streamSeq) {
+              void scheduleStore.connectStream(calendarId);
+            }
+          }, 5000);
+        }
+      };
+      eventSource = es;
+    } catch {
+      // Non-fatal: schedule data already loaded over HTTPS/REST
+    }
   },
 
   disconnect() {

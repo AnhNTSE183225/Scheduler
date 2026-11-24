@@ -13,21 +13,13 @@ use axum::{
     http::{HeaderMap, header},
     routing::{get, post},
 };
-use serde::Deserialize;
-
-#[derive(Debug, Deserialize, Default)]
-pub struct AuthQuery {
-    pub token: Option<String>,
-}
 
 pub fn build_router(state: AppState) -> Router {
     Router::new()
         .route("/api/health", get(health::health_check))
-        // Auth
-        .route("/api/auth/config", get(auth::get_auth_config))
-        .route("/api/auth/google/login", get(auth::google_login))
-        .route("/api/auth/google/callback", get(auth::google_callback))
-        .route("/api/auth/dev-login", post(auth::dev_login))
+        // Auth (3-field Argon2id Register / Login)
+        .route("/api/auth/register", post(auth::register))
+        .route("/api/auth/login", post(auth::login))
         .route("/api/auth/logout", post(auth::logout))
         .route("/api/me", get(auth::get_me))
         // Calendars / Groups
@@ -41,7 +33,6 @@ pub fn build_router(state: AppState) -> Router {
             axum::routing::put(events::update_event).delete(events::delete_event),
         )
         .route("/api/schedule/{calendar_id}/{event_id}/respond", post(events::respond_event))
-        .route("/api/schedule/{calendar_id}/{event_id}/ics", get(events::download_ics))
         // Public Shareable Event Links (zero-friction RSVP & Push subscribe)
         .route("/api/public/events/{share_token}", get(public_events::get_public_event))
         .route("/api/public/events/{share_token}/respond", post(public_events::respond_public_event))
@@ -49,47 +40,39 @@ pub fn build_router(state: AppState) -> Router {
             "/api/public/events/{share_token}/push-subscribe",
             post(public_events::subscribe_public_event_push),
         )
-        .route("/api/public/events/{share_token}/ics", get(public_events::download_public_ics))
-        // Web Push & Live SSE Stream
+        // Web Push & Live SSE Stream (short-lived single-use ticket auth)
         .route("/api/push/vapid-key", get(notifications::get_vapid_key))
         .route("/api/push/subscribe", post(notifications::subscribe_push))
         .route("/api/push/unsubscribe", post(notifications::unsubscribe_push))
         .route("/api/push/test", post(notifications::send_test_push))
+        .route(
+            "/api/stream/{calendar_id}/ticket",
+            post(notifications::issue_stream_ticket),
+        )
         .route("/api/stream/{calendar_id}", get(notifications::stream_calendar))
         .with_state(state)
 }
 
-pub fn extract_bearer_token(headers: &HeaderMap, query: Option<&AuthQuery>) -> Option<String> {
-    if let Some(auth_val) = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok()) {
-        if let Some(tok) = auth_val.strip_prefix("Bearer ").or_else(|| auth_val.strip_prefix("bearer ")) {
-            let clean = tok.trim();
-            if !clean.is_empty() {
-                return Some(clean.to_string());
-            }
-        }
+pub fn extract_bearer_token(headers: &HeaderMap) -> Option<String> {
+    let auth_val = headers.get(header::AUTHORIZATION).and_then(|v| v.to_str().ok())?;
+    let tok = auth_val
+        .strip_prefix("Bearer ")
+        .or_else(|| auth_val.strip_prefix("bearer "))?;
+    let clean = tok.trim();
+    if clean.is_empty() {
+        None
+    } else {
+        Some(clean.to_string())
     }
-    query
-        .and_then(|q| q.token.as_deref())
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(ToString::to_string)
 }
 
-pub async fn require_session(
-    headers: &HeaderMap,
-    query: Option<&AuthQuery>,
-    state: &AppState,
-) -> Result<UserSession, AppError> {
-    let token = extract_bearer_token(headers, query)
+pub async fn require_session(headers: &HeaderMap, state: &AppState) -> Result<UserSession, AppError> {
+    let token = extract_bearer_token(headers)
         .ok_or_else(|| AppError::Unauthorized("Missing authentication token".to_string()))?;
     state.auth_svc.verify_token(&token).await
 }
 
-pub async fn optional_session(
-    headers: &HeaderMap,
-    query: Option<&AuthQuery>,
-    state: &AppState,
-) -> Option<UserSession> {
-    let token = extract_bearer_token(headers, query)?;
+pub async fn optional_session(headers: &HeaderMap, state: &AppState) -> Option<UserSession> {
+    let token = extract_bearer_token(headers)?;
     state.auth_svc.verify_token(&token).await.ok()
 }

@@ -1,8 +1,160 @@
 use crate::error::AppError;
-use crate::models::event::ScheduleEvent;
+use crate::models::event::{
+    ScheduleEvent, ScheduleEventLink, ScheduleEventLocation, ScheduleEventRecurrence,
+};
 use crate::repositories::now_sec;
 use sqlx::{Row, SqlitePool};
+use std::collections::HashSet;
 use std::future::Future;
+
+const MAX_TITLE_LEN: usize = 160;
+const MAX_DESC_LEN: usize = 4000;
+const MAX_CATEGORY_LEN: usize = 40;
+const MAX_URL_LEN: usize = 1024;
+const MAX_ADDRESS_LEN: usize = 300;
+const MAX_LINKS: usize = 15;
+const MAX_LINK_LABEL_LEN: usize = 80;
+const MAX_INVITEES: usize = 200;
+const MAX_CANCELLED_OCCURRENCES: usize = 365;
+const MAX_RESPONDERS: usize = 500;
+const MAX_OCCURRENCE_KEYS: usize = 365;
+
+pub fn validate_http_url(raw: &str, field: &str) -> Result<String, AppError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() || trimmed.len() > MAX_URL_LEN {
+        return Err(AppError::BadRequest(format!(
+            "{field} must be a valid HTTP(S) URL up to {MAX_URL_LEN} characters"
+        )));
+    }
+    let parsed = reqwest::Url::parse(trimmed)
+        .map_err(|_| AppError::BadRequest(format!("{field} must be a valid HTTP(S) URL")))?;
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+        return Err(AppError::BadRequest(format!(
+            "{field} must use the http:// or https:// scheme"
+        )));
+    }
+    Ok(trimmed.to_string())
+}
+
+fn validate_date_key(key: &str, field: &str) -> Result<(), AppError> {
+    if key.len() != 10 || chrono::NaiveDate::parse_from_str(key, "%Y-%m-%d").is_err() {
+        return Err(AppError::BadRequest(format!(
+            "{field} must be a valid YYYY-MM-DD date"
+        )));
+    }
+    Ok(())
+}
+
+fn sanitize_location(val: &serde_json::Value) -> Result<Option<String>, AppError> {
+    if val.is_null() {
+        return Ok(None);
+    }
+    let mut loc: ScheduleEventLocation = serde_json::from_value(val.clone())
+        .map_err(|_| AppError::BadRequest("Invalid location payload".to_string()))?;
+    if !matches!(loc.kind.as_str(), "address" | "link") {
+        return Err(AppError::BadRequest(
+            "Location kind must be 'address' or 'link'".to_string(),
+        ));
+    }
+    loc.address = loc
+        .address
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty());
+    if let Some(ref addr) = loc.address {
+        if addr.chars().count() > MAX_ADDRESS_LEN {
+            return Err(AppError::BadRequest(format!(
+                "Location address must be at most {MAX_ADDRESS_LEN} characters"
+            )));
+        }
+    }
+    loc.url = match loc.url.map(|s| s.trim().to_string()).filter(|s| !s.is_empty()) {
+        Some(u) => Some(validate_http_url(&u, "location.url")?),
+        None => None,
+    };
+    serde_json::to_string(&loc)
+        .map(Some)
+        .map_err(|e| AppError::Internal(format!("Failed to serialize location: {e}")))
+}
+
+fn sanitize_links(val: &serde_json::Value) -> Result<String, AppError> {
+    if val.is_null() {
+        return Ok("[]".to_string());
+    }
+    let links: Vec<ScheduleEventLink> = serde_json::from_value(val.clone())
+        .map_err(|_| AppError::BadRequest("Invalid links payload".to_string()))?;
+    if links.len() > MAX_LINKS {
+        return Err(AppError::BadRequest(format!(
+            "At most {MAX_LINKS} links are allowed per event"
+        )));
+    }
+    let mut cleaned = Vec::with_capacity(links.len());
+    for link in links {
+        let label = link.label.trim().to_string();
+        if label.is_empty() || label.chars().count() > MAX_LINK_LABEL_LEN {
+            return Err(AppError::BadRequest(format!(
+                "Link label must be 1-{MAX_LINK_LABEL_LEN} characters"
+            )));
+        }
+        let url = validate_http_url(&link.url, "links[].url")?;
+        cleaned.push(ScheduleEventLink { label, url });
+    }
+    serde_json::to_string(&cleaned)
+        .map_err(|e| AppError::Internal(format!("Failed to serialize links: {e}")))
+}
+
+fn sanitize_invitee_ids(val: &serde_json::Value) -> Result<String, AppError> {
+    if val.is_null() {
+        return Ok("[]".to_string());
+    }
+    let raw: Vec<String> = serde_json::from_value(val.clone())
+        .map_err(|_| AppError::BadRequest("Invalid inviteeIds payload".to_string()))?;
+    if raw.len() > MAX_INVITEES {
+        return Err(AppError::BadRequest(format!(
+            "At most {MAX_INVITEES} invitees are allowed per event"
+        )));
+    }
+    let mut seen = HashSet::new();
+    let mut cleaned = Vec::with_capacity(raw.len());
+    for id in raw {
+        let trimmed = id.trim().to_string();
+        if !trimmed.is_empty() && trimmed.len() <= 128 && seen.insert(trimmed.clone()) {
+            cleaned.push(trimmed);
+        }
+    }
+    serde_json::to_string(&cleaned)
+        .map_err(|e| AppError::Internal(format!("Failed to serialize inviteeIds: {e}")))
+}
+
+fn sanitize_recurrence(val: &serde_json::Value) -> Result<Option<String>, AppError> {
+    if val.is_null() {
+        return Ok(None);
+    }
+    let mut rec: ScheduleEventRecurrence = serde_json::from_value(val.clone())
+        .map_err(|_| AppError::BadRequest("Invalid recurrence payload".to_string()))?;
+    if !matches!(rec.freq.as_str(), "daily" | "weekly" | "monthly") {
+        return Err(AppError::BadRequest(
+            "Recurrence freq must be 'daily', 'weekly', or 'monthly'".to_string(),
+        ));
+    }
+    rec.interval = rec.interval.clamp(1, 52);
+    if let Some(ref until) = rec.until {
+        let trimmed = until.trim();
+        if !trimmed.is_empty()
+            && chrono::NaiveDate::parse_from_str(trimmed, "%Y-%m-%d").is_err()
+            && chrono::DateTime::parse_from_rfc3339(trimmed).is_err()
+        {
+            return Err(AppError::BadRequest(
+                "Invalid recurrence until date".to_string(),
+            ));
+        }
+    }
+    if let Some(c) = rec.count {
+        rec.count = Some(c.clamp(1, 365));
+    }
+    serde_json::to_string(&rec)
+        .map(Some)
+        .map_err(|e| AppError::Internal(format!("Failed to serialize recurrence: {e}")))
+}
 
 pub trait EventRepository: Send + Sync {
     fn list_calendar_events(&self, calendar_id: &str) -> impl Future<Output = Result<Vec<ScheduleEvent>, AppError>> + Send;
@@ -179,8 +331,10 @@ impl EventRepository for SqliteEventRepository {
             .unwrap_or("")
             .trim()
             .to_string();
-        if title.is_empty() {
-            return Err(AppError::BadRequest("Event title is required".to_string()));
+        if title.is_empty() || title.chars().count() > MAX_TITLE_LEN {
+            return Err(AppError::BadRequest(format!(
+                "Event title must be 1-{MAX_TITLE_LEN} characters"
+            )));
         }
 
         let description = payload
@@ -189,12 +343,24 @@ impl EventRepository for SqliteEventRepository {
             .unwrap_or("")
             .trim()
             .to_string();
+        if description.chars().count() > MAX_DESC_LEN {
+            return Err(AppError::BadRequest(format!(
+                "Description must be at most {MAX_DESC_LEN} characters"
+            )));
+        }
+
         let category = payload
             .get("category")
             .and_then(|v| v.as_str())
             .unwrap_or("other")
             .trim()
             .to_string();
+        if category.chars().count() > MAX_CATEGORY_LEN {
+            return Err(AppError::BadRequest(format!(
+                "Category must be at most {MAX_CATEGORY_LEN} characters"
+            )));
+        }
+
         let start = payload
             .get("start")
             .and_then(|v| v.as_str())
@@ -205,24 +371,28 @@ impl EventRepository for SqliteEventRepository {
             .and_then(|v| v.as_i64())
             .unwrap_or(60)
             .clamp(15, 1440) as i32;
-        let rec_json = payload
-            .get("recurrence")
-            .filter(|v| !v.is_null())
-            .map(|r| serde_json::to_string(r).unwrap_or_default());
-        let loc_json = payload
-            .get("location")
-            .filter(|v| !v.is_null())
-            .map(|l| serde_json::to_string(l).unwrap_or_default());
-        let image_url = payload
+
+        let rec_json = match payload.get("recurrence") {
+            Some(v) => sanitize_recurrence(v)?,
+            None => None,
+        };
+        let loc_json = match payload.get("location") {
+            Some(v) => sanitize_location(v)?,
+            None => None,
+        };
+        let image_url = match payload
             .get("imageUrl")
             .and_then(|v| v.as_str())
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty());
-        let links_json = payload
-            .get("links")
-            .filter(|v| !v.is_null())
-            .map(|l| serde_json::to_string(l).unwrap_or_default())
-            .unwrap_or_else(|| "[]".to_string());
+            .map(|s| s.trim())
+            .filter(|s| !s.is_empty())
+        {
+            Some(u) => Some(validate_http_url(u, "imageUrl")?),
+            None => None,
+        };
+        let links_json = match payload.get("links") {
+            Some(v) => sanitize_links(v)?,
+            None => "[]".to_string(),
+        };
         let invite_everyone = if payload
             .get("inviteEveryone")
             .and_then(|v| v.as_bool())
@@ -232,11 +402,10 @@ impl EventRepository for SqliteEventRepository {
         } else {
             0
         };
-        let invitees_json = payload
-            .get("inviteeIds")
-            .filter(|v| !v.is_null())
-            .map(|i| serde_json::to_string(i).unwrap_or_default())
-            .unwrap_or_else(|| "[]".to_string());
+        let invitees_json = match payload.get("inviteeIds") {
+            Some(v) => sanitize_invitee_ids(v)?,
+            None => "[]".to_string(),
+        };
 
         let series_responses = serde_json::json!({ organizer_id: "accepted" });
         let series_json = serde_json::to_string(&series_responses).unwrap_or_default();
@@ -303,14 +472,33 @@ impl EventRepository for SqliteEventRepository {
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
             .unwrap_or(&existing.title);
+        if title.chars().count() > MAX_TITLE_LEN {
+            return Err(AppError::BadRequest(format!(
+                "Event title must be at most {MAX_TITLE_LEN} characters"
+            )));
+        }
         let description = payload
             .get("description")
             .and_then(|v| v.as_str())
+            .map(|s| s.trim())
             .unwrap_or(&existing.description);
+        if description.chars().count() > MAX_DESC_LEN {
+            return Err(AppError::BadRequest(format!(
+                "Description must be at most {MAX_DESC_LEN} characters"
+            )));
+        }
         let category = payload
             .get("category")
             .and_then(|v| v.as_str())
+            .map(|s| s.trim())
             .or(existing.category.as_deref());
+        if let Some(cat) = category {
+            if cat.chars().count() > MAX_CATEGORY_LEN {
+                return Err(AppError::BadRequest(format!(
+                    "Category must be at most {MAX_CATEGORY_LEN} characters"
+                )));
+            }
+        }
         let start = payload
             .get("start")
             .and_then(|v| v.as_str())
@@ -322,8 +510,7 @@ impl EventRepository for SqliteEventRepository {
             .unwrap_or(existing.duration_minutes);
 
         let recurrence_json = match payload.get("recurrence") {
-            Some(v) if v.is_null() => None,
-            Some(v) => Some(serde_json::to_string(v).unwrap_or_default()),
+            Some(v) => sanitize_recurrence(v)?,
             None => existing
                 .recurrence
                 .as_ref()
@@ -331,8 +518,7 @@ impl EventRepository for SqliteEventRepository {
         };
 
         let location_json = match payload.get("location") {
-            Some(v) if v.is_null() => None,
-            Some(v) => Some(serde_json::to_string(v).unwrap_or_default()),
+            Some(v) => sanitize_location(v)?,
             None => existing
                 .location
                 .as_ref()
@@ -341,12 +527,15 @@ impl EventRepository for SqliteEventRepository {
 
         let image_url = match payload.get("imageUrl") {
             Some(v) if v.is_null() => None,
-            Some(v) => v.as_str().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()),
+            Some(v) => match v.as_str().map(|s| s.trim()).filter(|s| !s.is_empty()) {
+                Some(u) => Some(validate_http_url(u, "imageUrl")?),
+                None => None,
+            },
             None => existing.image_url,
         };
 
         let links_json = match payload.get("links") {
-            Some(v) => serde_json::to_string(v).unwrap_or_else(|_| "[]".to_string()),
+            Some(v) => sanitize_links(v)?,
             None => serde_json::to_string(&existing.links).unwrap_or_else(|_| "[]".to_string()),
         };
 
@@ -356,7 +545,7 @@ impl EventRepository for SqliteEventRepository {
         };
 
         let invitees_json = match payload.get("inviteeIds") {
-            Some(v) => serde_json::to_string(v).unwrap_or_else(|_| "[]".to_string()),
+            Some(v) => sanitize_invitee_ids(v)?,
             None => serde_json::to_string(&existing.invitee_ids).unwrap_or_else(|_| "[]".to_string()),
         };
 
@@ -406,8 +595,14 @@ impl EventRepository for SqliteEventRepository {
         }
 
         if let Some(occ) = occurrence {
+            validate_date_key(occ, "occurrence")?;
             let mut canc = existing.cancelled_occurrences;
             if !canc.iter().any(|c| c == occ) {
+                if canc.len() >= MAX_CANCELLED_OCCURRENCES {
+                    return Err(AppError::BadRequest(
+                        "Maximum cancelled occurrence limit reached for this series".to_string(),
+                    ));
+                }
                 canc.push(occ.to_string());
             }
             let canc_json = serde_json::to_string(&canc).unwrap_or_else(|_| "[]".to_string());
@@ -441,6 +636,15 @@ impl EventRepository for SqliteEventRepository {
         status: &str,
         scope: &str,
     ) -> Result<Option<ScheduleEvent>, AppError> {
+        if !matches!(scope, "series" | "occurrence") {
+            return Err(AppError::BadRequest(
+                "RSVP scope must be 'series' or 'occurrence'".to_string(),
+            ));
+        }
+        if scope == "occurrence" {
+            validate_date_key(key, "key")?;
+        }
+
         let Some(existing) = self.get_event(event_id).await? else {
             return Ok(None);
         };
@@ -448,6 +652,11 @@ impl EventRepository for SqliteEventRepository {
         if let Some(name) = guest_name {
             let mut guests = existing.guest_names;
             if let Some(obj) = guests.as_object_mut() {
+                if !obj.contains_key(responder_id) && obj.len() >= MAX_RESPONDERS {
+                    return Err(AppError::BadRequest(
+                        "Guest RSVP limit reached for this event".to_string(),
+                    ));
+                }
                 obj.insert(
                     responder_id.to_string(),
                     serde_json::Value::String(name.trim().to_string()),
@@ -464,6 +673,11 @@ impl EventRepository for SqliteEventRepository {
         if scope == "series" {
             let mut series = existing.series_responses;
             if let Some(obj) = series.as_object_mut() {
+                if !obj.contains_key(responder_id) && obj.len() >= MAX_RESPONDERS {
+                    return Err(AppError::BadRequest(
+                        "Responder limit reached for this event".to_string(),
+                    ));
+                }
                 obj.insert(
                     responder_id.to_string(),
                     serde_json::Value::String(status.to_string()),
@@ -478,10 +692,20 @@ impl EventRepository for SqliteEventRepository {
         } else {
             let mut occ = existing.occurrence_responses;
             if let Some(obj) = occ.as_object_mut() {
+                if !obj.contains_key(key) && obj.len() >= MAX_OCCURRENCE_KEYS {
+                    return Err(AppError::BadRequest(
+                        "Occurrence RSVP limit reached for this event".to_string(),
+                    ));
+                }
                 let occ_map = obj
                     .entry(key.to_string())
                     .or_insert_with(|| serde_json::json!({}));
                 if let Some(map) = occ_map.as_object_mut() {
+                    if !map.contains_key(responder_id) && map.len() >= MAX_RESPONDERS {
+                        return Err(AppError::BadRequest(
+                            "Responder limit reached for this occurrence".to_string(),
+                        ));
+                    }
                     map.insert(
                         responder_id.to_string(),
                         serde_json::Value::String(status.to_string()),

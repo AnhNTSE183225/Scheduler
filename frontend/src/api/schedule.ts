@@ -82,9 +82,16 @@ export function postPublicRespond(
   key: string,
   status: RsvpStatus,
   scope: RsvpScope,
+  guestId?: string,
 ): Promise<StateMachineDTO<{ event: ScheduleEvent; responderId: string }>> {
   return apiFetch(`/public/events/${encodeURIComponent(shareToken)}/respond`, {
     method: 'POST',
-    body: JSON.stringify({ name, key, status, scope }),
+    body: JSON.stringify({
+      name,
+      key,
+      status,
+      scope,
+      ...(guestId ? { guestId } : {}),
+    }),
   });
 }

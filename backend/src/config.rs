@@ -16,12 +16,8 @@ pub struct DatabaseConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct AuthConfig {
-    pub google_client_id: String,
-    pub google_client_secret: String,
-    pub google_redirect_uri: String,
-    pub allow_dev_login: bool,
     pub session_ttl_hours: i64,
-    pub admin_email: String,
+    pub admin_username: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -53,10 +49,5 @@ impl AppConfig {
             .add_source(Environment::with_prefix("APP").separator("__"));
 
         builder.build()?.try_deserialize()
-    }
-
-    pub fn google_oauth_configured(&self) -> bool {
-        !self.auth.google_client_id.trim().is_empty()
-            && !self.auth.google_client_secret.trim().is_empty()
     }
 }

@@ -40,12 +40,36 @@ export function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return outputArray;
 }
 
+export function withTimeout<T>(promise: Promise<T>, ms: number, timeoutMessage: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = window.setTimeout(() => reject(new Error(timeoutMessage)), ms);
+    promise.then(
+      (val) => {
+        window.clearTimeout(timer);
+        resolve(val);
+      },
+      (err) => {
+        window.clearTimeout(timer);
+        reject(err);
+      },
+    );
+  });
+}
+
 export async function registerServiceWorker(): Promise<ServiceWorkerRegistration | null> {
   if (typeof navigator === 'undefined' || !('serviceWorker' in navigator)) {
     return null;
   }
   try {
-    return await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    const existing = await navigator.serviceWorker.getRegistration('/');
+    if (!existing) {
+      await navigator.serviceWorker.register('/sw.js', { scope: '/' });
+    }
+    return await withTimeout(
+      navigator.serviceWorker.ready,
+      8000,
+      'Service Worker did not activate in time. Reload the page and try again.',
+    );
   } catch (err) {
     console.warn('[PWA] ServiceWorker registration failed:', err);
     return null;

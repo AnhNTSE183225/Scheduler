@@ -140,7 +140,7 @@ where
         });
     }
 
-    async fn check_upcoming_reminders(&self) -> Result<(), String> {
+    async fn check_upcoming_reminders(self: &Arc<Self>) -> Result<(), String> {
         let events = self
             .event_repo
             .list_all_active_events()
@@ -161,12 +161,17 @@ where
                         .await
                         .unwrap_or(true);
                     if !already {
-                        self.send_occurrence_reminder(&ev, &occ_key, diff_mins, "lead")
-                            .await;
                         let _ = self
                             .push_repo
                             .mark_occurrence_reminded(&ev.id, &occ_key, "lead")
                             .await;
+                        let svc = Arc::clone(self);
+                        let ev_c = ev.clone();
+                        let key_c = occ_key.clone();
+                        tokio::spawn(async move {
+                            svc.send_occurrence_reminder(&ev_c, &key_c, diff_mins, "lead")
+                                .await;
+                        });
                     }
                 }
 
@@ -178,12 +183,17 @@ where
                         .await
                         .unwrap_or(true);
                     if !already {
-                        self.send_occurrence_reminder(&ev, &occ_key, 0, "start")
-                            .await;
                         let _ = self
                             .push_repo
                             .mark_occurrence_reminded(&ev.id, &occ_key, "start")
                             .await;
+                        let svc = Arc::clone(self);
+                        let ev_c = ev.clone();
+                        let key_c = occ_key.clone();
+                        tokio::spawn(async move {
+                            svc.send_occurrence_reminder(&ev_c, &key_c, 0, "start")
+                                .await;
+                        });
                     }
                 }
             }
@@ -244,19 +254,26 @@ where
         event: &ScheduleEvent,
         exclude_user_id: Option<&str>,
     ) -> Vec<String> {
+        let member_ids: HashSet<String> = self
+            .cal_repo
+            .list_member_infos(&event.calendar_id)
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .map(|m| m.id)
+            .collect();
+
         let mut set = HashSet::new();
-        if !event.organizer_id.is_empty() {
+        if !event.organizer_id.is_empty() && member_ids.contains(&event.organizer_id) {
             set.insert(event.organizer_id.clone());
         }
         if event.invite_everyone {
-            if let Ok(members) = self.cal_repo.list_member_infos(&event.calendar_id).await {
-                for m in members {
-                    set.insert(m.id);
-                }
-            }
+            set.extend(member_ids);
         } else {
             for uid in &event.invitee_ids {
-                set.insert(uid.clone());
+                if member_ids.contains(uid) {
+                    set.insert(uid.clone());
+                }
             }
         }
         if let Some(ex) = exclude_user_id {

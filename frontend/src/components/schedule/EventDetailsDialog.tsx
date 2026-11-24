@@ -1,11 +1,9 @@
 import { For, Show, createMemo, createSignal } from 'solid-js';
 import { format, parseISO } from 'date-fns';
 import {
-  CalendarPlus,
   Check,
   Clock,
   Copy,
-  Download,
   ExternalLink,
   HelpCircle,
   Link2,
@@ -21,14 +19,13 @@ import { getCategoryMeta } from '@/components/pickers/CategoryMeta';
 import { LocationMapPreview } from '@/components/pickers/LocationMapPreview';
 import { AvatarBadge } from './AvatarBadge';
 import {
-  buildGoogleCalendarUrl,
   canManageEvent,
   describeRecurrence,
   getResponse,
+  safeHttpUrl,
   summarizeResponses,
 } from '@/lib/recurrence';
 import type { Occurrence, RsvpScope, RsvpStatus, ServerMember } from '@/models/schedule';
-import { getStoredToken } from '@/api/client';
 
 export function EventDetailsDialog(props: {
   occ: Occurrence | null;
@@ -92,15 +89,6 @@ export function EventDetailsDialog(props: {
     }
   };
 
-  const icsHref = () => {
-    const e = ev();
-    if (!e) return '#';
-    const tok = getStoredToken();
-    return `/api/schedule/${encodeURIComponent(e.calendarId)}/${encodeURIComponent(e.id)}/ics${
-      tok ? `?token=${encodeURIComponent(tok)}` : ''
-    }`;
-  };
-
   return (
     <Dialog open={Boolean(props.occ)} onClose={props.onClose}>
       <Show when={props.occ}>
@@ -108,14 +96,15 @@ export function EventDetailsDialog(props: {
           const event = occ().event;
           const catMeta = getCategoryMeta(event.category, event.title, event.description);
           const CatIcon = catMeta.icon;
-          const gCalUrl = buildGoogleCalendarUrl(event, occ().start, occ().end);
 
           return (
             <>
-              <Show when={event.imageUrl}>
-                <div class="relative shrink-0">
-                  <img src={event.imageUrl!} alt="" class="w-full h-36 object-cover" />
-                </div>
+              <Show when={safeHttpUrl(event.imageUrl)}>
+                {(imgSrc) => (
+                  <div class="relative shrink-0">
+                    <img src={imgSrc()} alt="" class="w-full h-36 object-cover" />
+                  </div>
+                )}
               </Show>
 
               <div class="px-6 py-4 border-b border-border shrink-0 bg-card/80 flex items-start justify-between gap-3">
@@ -166,7 +155,7 @@ export function EventDetailsDialog(props: {
                   <p class="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">{event.description}</p>
                 </Show>
 
-                {/* Share & Calendar Export Actions */}
+                {/* Share Action */}
                 <div class="flex flex-wrap gap-2">
                   <button
                     type="button"
@@ -178,22 +167,6 @@ export function EventDetailsDialog(props: {
                     </Show>
                     {copiedLink() ? 'Invite Link Copied!' : 'Copy Shareable Invite Link'}
                   </button>
-                  <a
-                    href={gCalUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card/70 hover:bg-accent text-xs font-medium text-foreground"
-                  >
-                    <CalendarPlus size={13} class="text-primary" />
-                    Add to Google Calendar
-                  </a>
-                  <a
-                    href={icsHref()}
-                    class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border bg-card/70 hover:bg-accent text-xs font-medium text-foreground"
-                  >
-                    <Download size={13} class="text-primary" />
-                    .ics File
-                  </a>
                 </div>
 
                 <Show when={event.location}>
@@ -202,17 +175,19 @@ export function EventDetailsDialog(props: {
                       <Show when={loc().kind === 'address' && loc().address}>
                         <LocationMapPreview address={loc().address!} />
                       </Show>
-                      <Show when={loc().kind === 'link' && loc().url}>
-                        <a
-                          class="flex items-center gap-2 text-sm text-primary font-medium hover:underline"
-                          href={loc().url}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          <Link2 size={15} />
-                          <span class="truncate">{loc().url}</span>
-                          <ExternalLink size={12} />
-                        </a>
+                      <Show when={loc().kind === 'link' ? safeHttpUrl(loc().url) : null}>
+                        {(safeLocUrl) => (
+                          <a
+                            class="flex items-center gap-2 text-sm text-primary font-medium hover:underline"
+                            href={safeLocUrl()}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                          >
+                            <Link2 size={15} />
+                            <span class="truncate">{safeLocUrl()}</span>
+                            <ExternalLink size={12} />
+                          </a>
+                        )}
                       </Show>
                     </div>
                   )}
@@ -222,10 +197,14 @@ export function EventDetailsDialog(props: {
                   <div class="flex flex-wrap gap-2">
                     <For each={event.links}>
                       {(l) => (
-                        <a href={l.url} target="_blank" rel="noreferrer" class="link-chip">
-                          <Link2 size={12} />
-                          {l.label || l.url}
-                        </a>
+                        <Show when={safeHttpUrl(l.url)}>
+                          {(safeUrl) => (
+                            <a href={safeUrl()} target="_blank" rel="noopener noreferrer" class="link-chip">
+                              <Link2 size={12} />
+                              {l.label || safeUrl()}
+                            </a>
+                          )}
+                        </Show>
                       )}
                     </For>
                   </div>

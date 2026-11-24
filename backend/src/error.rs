@@ -15,12 +15,14 @@ pub enum AppError {
     Forbidden(String),
     #[error("Not found: {0}")]
     NotFound(String),
+    #[error("Conflict: {0}")]
+    Conflict(String),
+    #[error("Too many requests: {0}")]
+    TooManyRequests(String),
     #[error("Bad request: {0}")]
     BadRequest(String),
     #[error("Database error: {0}")]
     Database(#[from] sqlx::Error),
-    #[error("External service error: {0}")]
-    External(String),
     #[error("Internal error: {0}")]
     Internal(String),
 }
@@ -31,6 +33,12 @@ impl IntoResponse for AppError {
             AppError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, "unauthorized", msg.clone()),
             AppError::Forbidden(msg) => (StatusCode::FORBIDDEN, "forbidden", msg.clone()),
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, "not_found", msg.clone()),
+            AppError::Conflict(msg) => (StatusCode::CONFLICT, "conflict", msg.clone()),
+            AppError::TooManyRequests(msg) => (
+                StatusCode::TOO_MANY_REQUESTS,
+                "rate_limited",
+                msg.clone(),
+            ),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "bad_request", msg.clone()),
             AppError::Database(e) => {
                 error!(error = %e, "Database failure");
@@ -39,10 +47,6 @@ impl IntoResponse for AppError {
                     "database_error",
                     "Internal database error".to_string(),
                 )
-            }
-            AppError::External(msg) => {
-                error!(error = %msg, "External dependency failure");
-                (StatusCode::BAD_GATEWAY, "external_error", msg.clone())
             }
             AppError::Internal(msg) => {
                 error!(error = %msg, "Internal application failure");

@@ -42,3 +42,11 @@ export function postTestPush(): Promise<StateMachineDTO<{ subscriptions: number;
     method: 'POST',
   });
 }
+
+export function postStreamTicket(
+  calendarId: string,
+): Promise<StateMachineDTO<{ ticket: string; expiresInSeconds: number }>> {
+  return apiFetch(`/stream/${encodeURIComponent(calendarId)}/ticket`, {
+    method: 'POST',
+  });
+}

@@ -2,8 +2,11 @@ use crate::config::AppConfig;
 use crate::error::AppError;
 use crate::models::notification::PushSubscriptionRecord;
 use crate::repositories::push_repo::PushRepository;
+use axum::http::Uri;
 use base64ct::{Base64UrlUnpadded, Encoding as _};
+use futures::stream::{self, StreamExt};
 use serde::Serialize;
+use std::net::IpAddr;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{info, warn};
@@ -14,6 +17,58 @@ use web_push_native::{
 };
 
 const VAPID_SECRET_KEY: &str = "vapid_private_key";
+
+/// Strict allowlist of legitimate Web Push service host suffixes (mitigates SSRF & tarpit DoS).
+const ALLOWED_PUSH_HOST_SUFFIXES: &[&str] = &[
+    "fcm.googleapis.com",
+    "android.googleapis.com",
+    "push.services.mozilla.com",
+    "updates.push.services.mozilla.com",
+    "push.apple.com",
+    "web.push.apple.com",
+    "notify.windows.com",
+];
+
+pub fn validate_push_endpoint(endpoint: &str) -> Result<(), AppError> {
+    if endpoint.len() > 2048 {
+        return Err(AppError::BadRequest("Push endpoint URL is too long".to_string()));
+    }
+    let uri: Uri = endpoint
+        .parse()
+        .map_err(|_| AppError::BadRequest("Invalid push endpoint URL".to_string()))?;
+
+    if uri.scheme_str() != Some("https") {
+        return Err(AppError::BadRequest(
+            "Push endpoint must use HTTPS".to_string(),
+        ));
+    }
+
+    let authority = uri
+        .authority()
+        .ok_or_else(|| AppError::BadRequest("Push endpoint missing host".to_string()))?;
+    if authority.as_str().contains('@') {
+        return Err(AppError::BadRequest(
+            "Push endpoint must not contain credentials".to_string(),
+        ));
+    }
+
+    let host = authority.host().to_ascii_lowercase();
+    if host.parse::<IpAddr>().is_ok() || host == "localhost" {
+        return Err(AppError::BadRequest(
+            "Push endpoint must target a trusted Web Push service host".to_string(),
+        ));
+    }
+
+    let allowed = ALLOWED_PUSH_HOST_SUFFIXES
+        .iter()
+        .any(|suffix| host == *suffix || host.ends_with(&format!(".{suffix}")));
+    if !allowed {
+        return Err(AppError::BadRequest(
+            "Unsupported Web Push service host".to_string(),
+        ));
+    }
+    Ok(())
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct PushPayload {
@@ -105,33 +160,44 @@ impl<PR: PushRepository> PushService<PR> {
             }
         };
 
-        let mut sent = 0usize;
-        for sub in subs {
-            let t0 = Instant::now();
-            match self.send_single(sub, &json_payload).await {
-                Ok(true) => {
-                    sent += 1;
-                    info!(
-                        user_id = %sub.user_id,
-                        duration_ms = t0.elapsed().as_millis() as u64,
-                        "Web Push delivered"
-                    );
+        let results: Vec<usize> = stream::iter(subs.iter().cloned())
+            .map(|sub| {
+                let payload_ref = json_payload.clone();
+                async move {
+                    let t0 = Instant::now();
+                    match self.send_single(&sub, &payload_ref).await {
+                        Ok(true) => {
+                            info!(
+                                user_id = %sub.user_id,
+                                duration_ms = t0.elapsed().as_millis() as u64,
+                                "Web Push delivered"
+                            );
+                            1
+                        }
+                        Ok(false) => {
+                            let _ = self
+                                .push_repo
+                                .delete_subscription_by_endpoint(&sub.endpoint)
+                                .await;
+                            0
+                        }
+                        Err(e) => {
+                            warn!(
+                                user_id = %sub.user_id,
+                                error = %e,
+                                duration_ms = t0.elapsed().as_millis() as u64,
+                                "Web Push delivery failed"
+                            );
+                            0
+                        }
+                    }
                 }
-                Ok(false) => {
-                    // Subscription expired / 410 Gone
-                    let _ = self.push_repo.delete_subscription_by_endpoint(&sub.endpoint).await;
-                }
-                Err(e) => {
-                    warn!(
-                        user_id = %sub.user_id,
-                        error = %e,
-                        duration_ms = t0.elapsed().as_millis() as u64,
-                        "Web Push delivery failed"
-                    );
-                }
-            }
-        }
-        sent
+            })
+            .buffer_unordered(12)
+            .collect()
+            .await;
+
+        results.into_iter().sum()
     }
 
     async fn send_single(
@@ -139,6 +205,8 @@ impl<PR: PushRepository> PushService<PR> {
         sub: &PushSubscriptionRecord,
         json_payload: &str,
     ) -> Result<bool, String> {
+        validate_push_endpoint(&sub.endpoint).map_err(|e| e.to_string())?;
+
         let endpoint = sub.endpoint.parse().map_err(|e| format!("Bad endpoint URI: {e}"))?;
         let p256dh_bytes = Base64UrlUnpadded::decode_vec(&sub.p256dh)
             .map_err(|e| format!("Bad p256dh base64: {e}"))?;
@@ -172,11 +240,30 @@ impl<PR: PushRepository> PushService<PR> {
         if status.is_success() {
             Ok(true)
         } else if status.as_u16() == 404 || status.as_u16() == 410 {
-            warn!(status = %status, endpoint = %sub.endpoint, "Removing expired Web Push subscription");
+            warn!(status = %status, "Removing expired Web Push subscription");
             Ok(false)
         } else {
             let err_txt = resp.text().await.unwrap_or_default();
-            Err(format!("Push service returned {}: {}", status, err_txt))
+            let snippet: String = err_txt.chars().take(160).collect();
+            Err(format!("Push service returned {}: {}", status, snippet))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn push_endpoint_validation_blocks_ssrf_and_allows_trusted_hosts() {
+        assert!(validate_push_endpoint("https://fcm.googleapis.com/fcm/send/abc123").is_ok());
+        assert!(validate_push_endpoint("https://web.push.apple.com/Q12345").is_ok());
+        assert!(validate_push_endpoint("https://wns2-bn3p.notify.windows.com/w/?token=1").is_ok());
+
+        assert!(validate_push_endpoint("http://fcm.googleapis.com/fcm/send/abc").is_err());
+        assert!(validate_push_endpoint("https://127.0.0.1:8080/api/health").is_err());
+        assert!(validate_push_endpoint("http://169.254.169.254/latest/meta-data").is_err());
+        assert!(validate_push_endpoint("https://fcm.googleapis.com.evil.com/x").is_err());
+        assert!(validate_push_endpoint("https://user:pass@fcm.googleapis.com/x").is_err());
     }
 }

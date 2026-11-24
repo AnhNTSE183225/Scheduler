@@ -1,4 +1,4 @@
-import { Show, createEffect, createMemo, createSignal } from 'solid-js';
+import { Show, createEffect, createMemo, createSignal, on } from 'solid-js';
 import {
   addDays,
   addMonths,
@@ -57,10 +57,14 @@ export function SchedulePage() {
   const [slideDir, setSlideDir] = createSignal<'right' | 'left'>('right');
   const [refreshing, setRefreshing] = createSignal(false);
 
-  createEffect(() => {
-    const calId = authStore.activeCalendarId();
-    void scheduleStore.load(calId);
-  });
+  createEffect(
+    on(
+      () => authStore.activeCalendarId(),
+      (calId) => {
+        void scheduleStore.load(calId);
+      },
+    ),
+  );
 
   const userId = () => authStore.user()?.id || '';
   const activeCal = () => authStore.calendars().find((c) => c.id === authStore.activeCalendarId());

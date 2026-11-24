@@ -3,18 +3,18 @@ use crate::models::event::RespondEventRequest;
 use crate::models::state::StateMachineDTO;
 use crate::repositories::calendar_repo::CalendarRepository;
 use crate::repositories::event_repo::EventRepository;
-use crate::routes::{AuthQuery, require_session};
-use crate::services::ics_service;
+use crate::routes::require_session;
 use crate::state::AppState;
 use axum::{
     Json,
     extract::{Path, Query, State},
-    http::{HeaderMap, header},
+    http::HeaderMap,
     response::IntoResponse,
 };
 use chrono::{DateTime, Duration, Utc};
 use serde::Deserialize;
 use serde_json::json;
+use std::collections::HashSet;
 
 #[derive(Debug, Deserialize, Default)]
 pub struct DeleteOccurrenceQuery {
@@ -38,13 +38,51 @@ fn parse_future_start(start_str: &str) -> Result<DateTime<Utc>, AppError> {
     Ok(dt)
 }
 
+async fn filter_invitees_to_calendar_members(
+    state: &AppState,
+    calendar_id: &str,
+    payload: &mut serde_json::Value,
+) -> Result<(), AppError> {
+    let Some(obj) = payload.as_object_mut() else {
+        return Ok(());
+    };
+    let Some(val) = obj.get("inviteeIds") else {
+        return Ok(());
+    };
+    if val.is_null() {
+        return Ok(());
+    }
+    let Some(arr) = val.as_array() else {
+        return Err(AppError::BadRequest(
+            "inviteeIds must be an array of member IDs".to_string(),
+        ));
+    };
+
+    let member_ids: HashSet<String> = state
+        .cal_repo
+        .list_member_infos(calendar_id)
+        .await?
+        .into_iter()
+        .map(|m| m.id)
+        .collect();
+
+    let filtered: Vec<serde_json::Value> = arr
+        .iter()
+        .filter_map(|v| v.as_str())
+        .filter(|id| member_ids.contains(*id))
+        .map(|id| serde_json::Value::String(id.to_string()))
+        .collect();
+
+    obj.insert("inviteeIds".to_string(), serde_json::Value::Array(filtered));
+    Ok(())
+}
+
 pub async fn get_schedule(
     Path(calendar_id): Path<String>,
     headers: HeaderMap,
-    Query(q): Query<AuthQuery>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
-    let session = require_session(&headers, Some(&q), &state).await?;
+    let session = require_session(&headers, &state).await?;
     if !state.cal_repo.is_member(&calendar_id, &session.user.id).await? {
         return Err(AppError::Forbidden("You do not belong to this calendar".to_string()));
     }
@@ -63,11 +101,10 @@ pub async fn get_schedule(
 pub async fn create_event(
     Path(calendar_id): Path<String>,
     headers: HeaderMap,
-    Query(q): Query<AuthQuery>,
     State(state): State<AppState>,
-    Json(payload): Json<serde_json::Value>,
+    Json(mut payload): Json<serde_json::Value>,
 ) -> Result<impl IntoResponse, AppError> {
-    let session = require_session(&headers, Some(&q), &state).await?;
+    let session = require_session(&headers, &state).await?;
     if !state.cal_repo.is_member(&calendar_id, &session.user.id).await? {
         return Err(AppError::Forbidden("You do not belong to this calendar".to_string()));
     }
@@ -78,13 +115,15 @@ pub async fn create_event(
         .ok_or_else(|| AppError::BadRequest("Missing start time for event".to_string()))?;
     let _ = parse_future_start(start_str)?;
 
+    filter_invitees_to_calendar_members(&state, &calendar_id, &mut payload).await?;
+
     let ev = state
         .event_repo
         .create_event(
             &calendar_id,
             &payload,
             &session.user.id,
-            &session.user.name,
+            &session.user.display_name,
             session.user.avatar.as_deref(),
         )
         .await?;
@@ -101,11 +140,10 @@ pub async fn create_event(
 pub async fn update_event(
     Path((calendar_id, event_id)): Path<(String, String)>,
     headers: HeaderMap,
-    Query(q): Query<AuthQuery>,
     State(state): State<AppState>,
-    Json(payload): Json<serde_json::Value>,
+    Json(mut payload): Json<serde_json::Value>,
 ) -> Result<impl IntoResponse, AppError> {
-    let session = require_session(&headers, Some(&q), &state).await?;
+    let session = require_session(&headers, &state).await?;
     if !state.cal_repo.is_member(&calendar_id, &session.user.id).await? {
         return Err(AppError::Forbidden("You do not belong to this calendar".to_string()));
     }
@@ -114,6 +152,7 @@ pub async fn update_event(
         .event_repo
         .get_event(&event_id)
         .await?
+        .filter(|e| e.calendar_id == calendar_id)
         .ok_or_else(|| AppError::NotFound("Event not found".to_string()))?;
 
     if let Some(start_str) = payload.get("start").and_then(|v| v.as_str()) {
@@ -121,6 +160,8 @@ pub async fn update_event(
             let _ = parse_future_start(start_str)?;
         }
     }
+
+    filter_invitees_to_calendar_members(&state, &calendar_id, &mut payload).await?;
 
     let is_admin = state.auth_svc.is_admin(&session.user);
     let updated = state
@@ -143,18 +184,24 @@ pub async fn delete_event(
     Path((calendar_id, event_id)): Path<(String, String)>,
     Query(del_q): Query<DeleteOccurrenceQuery>,
     headers: HeaderMap,
-    Query(auth_q): Query<AuthQuery>,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
-    let session = require_session(&headers, Some(&auth_q), &state).await?;
+    let session = require_session(&headers, &state).await?;
     if !state.cal_repo.is_member(&calendar_id, &session.user.id).await? {
         return Err(AppError::Forbidden("You do not belong to this calendar".to_string()));
     }
 
+    let existing = state
+        .event_repo
+        .get_event(&event_id)
+        .await?
+        .filter(|e| e.calendar_id == calendar_id)
+        .ok_or_else(|| AppError::NotFound("Event not found".to_string()))?;
+
     let is_admin = state.auth_svc.is_admin(&session.user);
     let deleted = state
         .event_repo
-        .delete_event(&event_id, &session.user.id, is_admin, del_q.occurrence.as_deref())
+        .delete_event(&existing.id, &session.user.id, is_admin, del_q.occurrence.as_deref())
         .await?;
 
     if !deleted {
@@ -168,14 +215,20 @@ pub async fn delete_event(
 pub async fn respond_event(
     Path((calendar_id, event_id)): Path<(String, String)>,
     headers: HeaderMap,
-    Query(q): Query<AuthQuery>,
     State(state): State<AppState>,
     Json(payload): Json<RespondEventRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let session = require_session(&headers, Some(&q), &state).await?;
+    let session = require_session(&headers, &state).await?;
     if !state.cal_repo.is_member(&calendar_id, &session.user.id).await? {
         return Err(AppError::Forbidden("You do not belong to this calendar".to_string()));
     }
+
+    let existing = state
+        .event_repo
+        .get_event(&event_id)
+        .await?
+        .filter(|e| e.calendar_id == calendar_id)
+        .ok_or_else(|| AppError::NotFound("Event not found".to_string()))?;
 
     let status = match payload.status.as_str() {
         "accepted" | "tentative" | "declined" => payload.status.as_str(),
@@ -185,7 +238,7 @@ pub async fn respond_event(
     let updated = state
         .event_repo
         .respond_event(
-            &event_id,
+            &existing.id,
             &session.user.id,
             None,
             &payload.key,
@@ -197,38 +250,4 @@ pub async fn respond_event(
 
     state.reminder_svc.notify_rsvp_updated(&updated);
     Ok(Json(StateMachineDTO::active(json!({ "event": updated }))))
-}
-
-pub async fn download_ics(
-    Path((calendar_id, event_id)): Path<(String, String)>,
-    headers: HeaderMap,
-    Query(q): Query<AuthQuery>,
-    State(state): State<AppState>,
-) -> Result<impl IntoResponse, AppError> {
-    let session = require_session(&headers, Some(&q), &state).await?;
-    if !state.cal_repo.is_member(&calendar_id, &session.user.id).await? {
-        return Err(AppError::Forbidden("You do not belong to this calendar".to_string()));
-    }
-
-    let ev = state
-        .event_repo
-        .get_event(&event_id)
-        .await?
-        .ok_or_else(|| AppError::NotFound("Event not found".to_string()))?;
-
-    let url = format!(
-        "{}/e/{}",
-        state.config.server.frontend_url.trim_end_matches('/'),
-        ev.share_token
-    );
-    let ics = ics_service::build_ics(&ev, &url);
-    let filename = format!("attachment; filename=\"{}.ics\"", ev.id);
-
-    Ok((
-        [
-            (header::CONTENT_TYPE, "text/calendar; charset=utf-8".to_string()),
-            (header::CONTENT_DISPOSITION, filename),
-        ],
-        ics,
-    ))
 }

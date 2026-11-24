@@ -1,15 +1,15 @@
 import { Show, createMemo } from 'solid-js';
 import { ExternalLink, MapPin } from 'lucide-solid';
-import { googleMapsEmbedUrl, isGoogleMapsShortlink } from '@/lib/recurrence';
+import { googleMapsEmbedUrl, isGoogleMapsShortlink, safeHttpUrl } from '@/lib/recurrence';
 
 export function LocationMapPreview(props: { address: string; className?: string }) {
   const trimmed = createMemo(() => (props.address || '').trim());
-  const isLink = createMemo(() => isGoogleMapsShortlink(trimmed()));
+  const safeLink = createMemo(() => (isGoogleMapsShortlink(trimmed()) ? safeHttpUrl(trimmed()) : null));
 
   return (
     <Show when={trimmed()}>
       <Show
-        when={!isLink()}
+        when={!safeLink()}
         fallback={
           <div class={`p-4 rounded-xl border border-primary/25 bg-card/70 flex flex-col gap-3 shadow-md ${props.className || ''}`}>
             <div class="flex items-center justify-between gap-3 flex-wrap">
@@ -23,9 +23,9 @@ export function LocationMapPreview(props: { address: string; className?: string 
                 </div>
               </div>
               <a
-                href={trimmed()}
+                href={safeLink()!}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-medium hover:opacity-90 shrink-0"
               >
                 Open in Google Maps

@@ -20,7 +20,7 @@ pub struct CalendarSpace {
 pub struct CalendarMember {
     pub id: String,
     pub name: String,
-    pub email: Option<String>,
+    pub username: String,
     pub avatar: Option<String>,
     pub role: String, // "owner" | "member" | "guest"
 }

@@ -88,6 +88,7 @@ $loggerPort = 9428
 $shipperPid = 0
 $backendPid = 0
 $frontendPid = 0
+$tailscaleServe = $false
 $stopSentinel = ""
 $flushDoneFile = ""
 $appPorts = @() + $FallbackPorts
@@ -103,6 +104,7 @@ if (Test-Path $pidFile) {
         if ($pidData.shipper_pid)     { $shipperPid    = [int]$pidData.shipper_pid }
         if ($pidData.backend_pid)     { $backendPid    = [int]$pidData.backend_pid }
         if ($pidData.frontend_pid)    { $frontendPid   = [int]$pidData.frontend_pid }
+        if ($null -ne $pidData.tailscale_serve) { $tailscaleServe = [bool]$pidData.tailscale_serve }
         if ($pidData.stop_sentinel)   { $stopSentinel  = [string]$pidData.stop_sentinel }
         if ($pidData.flush_done_file) { $flushDoneFile = [string]$pidData.flush_done_file }
 
@@ -120,6 +122,15 @@ if (Test-Path $pidFile) {
 $appPorts = @($appPorts | Where-Object { $_ -ne $loggerPort } | Select-Object -Unique)
 
 Write-StopLog "[1/4] Stopping application services (Frontend -> Backend)..." "Cyan"
+if ($tailscaleServe) {
+    $tsCmd = Get-Command tailscale -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($tsCmd) {
+        try {
+            $null = & $tsCmd.Source serve reset 2>&1
+            Write-StopLog "  [Tailscale] Reset Tailscale Serve HTTPS proxy." "DarkGray"
+        } catch {}
+    }
+}
 if ($frontendPid -and (Stop-PidTree -TargetPid $frontendPid -Label "Frontend")) { $stoppedAny = $true }
 if ($backendPid -and (Stop-PidTree -TargetPid $backendPid -Label "Backend")) { $stoppedAny = $true }
 

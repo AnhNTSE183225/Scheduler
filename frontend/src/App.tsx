@@ -57,8 +57,8 @@ export function App() {
           {(u) => (
             <div class="flex items-center gap-2.5 shrink-0">
               <div class="flex items-center gap-2 px-2.5 py-1 rounded-full border border-border bg-card/60">
-                <AvatarBadge name={u().name} avatar={u().avatar} size={22} />
-                <span class="text-xs font-medium max-w-[140px] truncate">{u().name}</span>
+                <AvatarBadge name={u().displayName} avatar={u().avatar} size={22} />
+                <span class="text-xs font-medium max-w-[140px] truncate">{u().displayName}</span>
               </div>
               <button
                 type="button"

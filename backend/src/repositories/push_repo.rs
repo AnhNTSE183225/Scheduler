@@ -4,6 +4,9 @@ use crate::repositories::now_sec;
 use sqlx::{Row, SqlitePool};
 use std::future::Future;
 
+const MAX_SUBS_PER_USER: i64 = 10;
+const MAX_SUBS_PER_EVENT: i64 = 50;
+
 pub trait PushRepository: Send + Sync {
     fn get_secret(&self, key: &str) -> impl Future<Output = Result<Option<String>, AppError>> + Send;
     fn set_secret(&self, key: &str, value: &str) -> impl Future<Output = Result<(), AppError>> + Send;
@@ -17,6 +20,11 @@ pub trait PushRepository: Send + Sync {
         user_agent: Option<&str>,
     ) -> impl Future<Output = Result<PushSubscriptionRecord, AppError>> + Send;
     fn delete_subscription_by_endpoint(&self, endpoint: &str) -> impl Future<Output = Result<(), AppError>> + Send;
+    fn delete_subscription_for_user(
+        &self,
+        endpoint: &str,
+        user_id: &str,
+    ) -> impl Future<Output = Result<(), AppError>> + Send;
     fn list_subscriptions_for_users(&self, user_ids: &[String]) -> impl Future<Output = Result<Vec<PushSubscriptionRecord>, AppError>> + Send;
     fn list_subscriptions_for_event(&self, event_id: &str) -> impl Future<Output = Result<Vec<PushSubscriptionRecord>, AppError>> + Send;
     fn is_occurrence_reminded(
@@ -88,6 +96,47 @@ impl PushRepository for SqlitePushRepository {
         auth: &str,
         user_agent: Option<&str>,
     ) -> Result<PushSubscriptionRecord, AppError> {
+        // Check existing owner to prevent unauthenticated guest takeover of an authenticated user's endpoint
+        let existing_owner: Option<String> = sqlx::query("SELECT user_id FROM push_subscriptions WHERE endpoint = ?")
+            .bind(endpoint)
+            .fetch_optional(&self.pool)
+            .await?
+            .map(|r| r.get("user_id"));
+
+        if let Some(ref owner) = existing_owner {
+            if user_id.starts_with("guest-push:") && !owner.starts_with("guest-push:") {
+                return Err(AppError::Forbidden(
+                    "This device is already registered to a signed-in account".to_string(),
+                ));
+            }
+        } else {
+            // Enforce per-user and per-event subscription caps on new rows
+            if !user_id.starts_with("guest-push:") {
+                let count: i64 = sqlx::query("SELECT COUNT(*) as c FROM push_subscriptions WHERE user_id = ?")
+                    .bind(user_id)
+                    .fetch_one(&self.pool)
+                    .await?
+                    .get("c");
+                if count >= MAX_SUBS_PER_USER {
+                    return Err(AppError::TooManyRequests(
+                        "Maximum push devices reached for this account".to_string(),
+                    ));
+                }
+            }
+            if let Some(eid) = event_id {
+                let count: i64 = sqlx::query("SELECT COUNT(*) as c FROM push_subscriptions WHERE event_id = ?")
+                    .bind(eid)
+                    .fetch_one(&self.pool)
+                    .await?
+                    .get("c");
+                if count >= MAX_SUBS_PER_EVENT {
+                    return Err(AppError::TooManyRequests(
+                        "Maximum guest push subscriptions reached for this event".to_string(),
+                    ));
+                }
+            }
+        }
+
         let now = now_sec();
         let id = format!("sub-{}", &uuid::Uuid::new_v4().simple().to_string()[..12]);
 
@@ -97,7 +146,7 @@ impl PushRepository for SqlitePushRepository {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(endpoint) DO UPDATE SET
                 user_id = excluded.user_id,
-                event_id = COALESCE(excluded.event_id, push_subscriptions.event_id),
+                event_id = excluded.event_id,
                 p256dh = excluded.p256dh,
                 auth = excluded.auth,
                 user_agent = excluded.user_agent
@@ -128,6 +177,19 @@ impl PushRepository for SqlitePushRepository {
     async fn delete_subscription_by_endpoint(&self, endpoint: &str) -> Result<(), AppError> {
         sqlx::query("DELETE FROM push_subscriptions WHERE endpoint = ?")
             .bind(endpoint)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn delete_subscription_for_user(
+        &self,
+        endpoint: &str,
+        user_id: &str,
+    ) -> Result<(), AppError> {
+        sqlx::query("DELETE FROM push_subscriptions WHERE endpoint = ? AND user_id = ?")
+            .bind(endpoint)
+            .bind(user_id)
             .execute(&self.pool)
             .await?;
         Ok(())
