@@ -115,6 +115,14 @@ export const authStore = {
     return cal;
   },
 
+  leaveGroup(calendarId: string) {
+    const remaining = calendars().filter((c) => c.id !== calendarId);
+    setCalendars(remaining);
+    if (activeCalendarId() === calendarId) {
+      setActiveCalendarId(remaining[0]?.id ?? null);
+    }
+  },
+
   async logout() {
     try {
       await postLogout();

@@ -40,6 +40,14 @@ export interface ServerMember {
   avatar: string | null;
 }
 
+export interface GroupMember {
+  id: string;
+  name: string;
+  username: string;
+  avatar: string | null;
+  role: 'owner' | 'member' | string;
+}
+
 export interface ScheduleEventLocation {
   kind: 'address' | 'link';
   address?: string;
@@ -93,7 +101,15 @@ export interface Occurrence {
 }
 
 export interface SseNotificationEvent {
-  kind: 'connected' | 'event_created' | 'event_updated' | 'event_deleted' | 'rsvp_updated' | 'reminder';
+  kind:
+    | 'connected'
+    | 'event_created'
+    | 'event_updated'
+    | 'event_deleted'
+    | 'rsvp_updated'
+    | 'reminder'
+    | 'member_joined'
+    | 'member_removed';
   calendarId: string;
   eventId: string;
   title?: string;

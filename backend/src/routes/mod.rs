@@ -26,6 +26,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/calendars", get(calendars::list_calendars).post(calendars::create_calendar))
         .route("/api/calendars/join", post(calendars::join_calendar))
         .route("/api/calendars/{calendar_id}/members", get(calendars::list_members))
+        .route(
+            "/api/calendars/{calendar_id}/members/{member_id}",
+            axum::routing::delete(calendars::remove_member),
+        )
         // Authenticated Schedule Events
         .route("/api/schedule/{calendar_id}", get(events::get_schedule).post(events::create_event))
         .route(

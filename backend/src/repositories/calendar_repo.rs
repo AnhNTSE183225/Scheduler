@@ -24,6 +24,11 @@ pub trait CalendarRepository: Send + Sync {
     ) -> impl Future<Output = Result<Option<CalendarSpace>, AppError>> + Send;
     fn list_members(&self, calendar_id: &str) -> impl Future<Output = Result<Vec<CalendarMember>, AppError>> + Send;
     fn list_member_infos(&self, calendar_id: &str) -> impl Future<Output = Result<Vec<CalendarMemberInfo>, AppError>> + Send;
+    fn remove_member(
+        &self,
+        calendar_id: &str,
+        target_user_id: &str,
+    ) -> impl Future<Output = Result<bool, AppError>> + Send;
 }
 
 #[derive(Clone)]
@@ -262,5 +267,20 @@ impl CalendarRepository for SqliteCalendarRepository {
                 avatar: m.avatar,
             })
             .collect())
+    }
+
+    async fn remove_member(
+        &self,
+        calendar_id: &str,
+        target_user_id: &str,
+    ) -> Result<bool, AppError> {
+        let res = sqlx::query(
+            "DELETE FROM calendar_members WHERE calendar_id = ? AND user_id = ? AND role != 'owner'",
+        )
+        .bind(calendar_id)
+        .bind(target_user_id)
+        .execute(&self.pool)
+        .await?;
+        Ok(res.rows_affected() > 0)
     }
 }

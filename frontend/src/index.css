@@ -76,6 +76,12 @@
     font-family: var(--font-sans);
     -webkit-font-smoothing: antialiased;
     overflow-x: hidden;
+    touch-action: manipulation;
+  }
+  @media (max-width: 639px) {
+    input, textarea, select {
+      font-size: 16px !important;
+    }
   }
   button, input, textarea {
     font: inherit;
@@ -124,14 +130,21 @@
 }
 
 .app-header {
-  min-height: 58px;
-  padding: 8px 24px;
+  min-height: calc(58px + env(safe-area-inset-top, 0px));
+  padding: calc(8px + env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px)) 8px max(16px, env(safe-area-inset-left, 0px));
   display: flex;
   align-items: center;
   justify-content: space-between;
   border-bottom: 1px solid var(--border);
   gap: 12px;
   flex-wrap: wrap;
+}
+
+@media (min-width: 640px) {
+  .app-header {
+    padding-left: 24px;
+    padding-right: 24px;
+  }
 }
 
 .brand-mark {
@@ -156,13 +169,19 @@
 .room-main {
   max-width: 1180px;
   margin: 0 auto;
-  padding: 18px 24px 20px;
+  padding: 16px max(16px, env(safe-area-inset-right, 0px)) calc(20px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
   width: 100%;
   min-width: 0;
   flex: 1;
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+@media (min-width: 640px) {
+  .room-main {
+    padding: 18px 24px 20px;
+  }
 }
 
 .schedule-panel {

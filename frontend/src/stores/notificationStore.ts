@@ -25,6 +25,26 @@ const [deferredPrompt, setDeferredPrompt] = createSignal<BeforeInstallPromptEven
 const [errorMsg, setErrorMsg] = createSignal<string | null>(null);
 const [feedbackMsg, setFeedbackMsg] = createSignal<string | null>(null);
 
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    setDeferredPrompt(e as BeforeInstallPromptEvent);
+  });
+  window.addEventListener('appinstalled', () => {
+    setDeferredPrompt(null);
+    setInstallMode('standalone');
+  });
+}
+
+function keysMatch(a: ArrayBuffer | null | undefined, b: Uint8Array): boolean {
+  if (!a || a.byteLength !== b.byteLength) return false;
+  const viewA = new Uint8Array(a);
+  for (let i = 0; i < b.byteLength; i++) {
+    if (viewA[i] !== b[i]) return false;
+  }
+  return true;
+}
+
 function transitionTo(next: EntityStatus, reason: string) {
   const prev = untrack(status);
   if (prev !== next) {
@@ -43,16 +63,6 @@ export const notificationStore = {
 
   async init() {
     setInstallMode(detectInstallMode());
-    if (typeof window !== 'undefined') {
-      window.addEventListener('beforeinstallprompt', (e) => {
-        e.preventDefault();
-        setDeferredPrompt(e as BeforeInstallPromptEvent);
-      });
-      window.addEventListener('appinstalled', () => {
-        setDeferredPrompt(null);
-        setInstallMode('standalone');
-      });
-    }
 
     if (typeof Notification === 'undefined' || !('PushManager' in window)) {
       transitionTo('paused', 'Push API unavailable in current browser context');
@@ -141,6 +151,10 @@ export const notificationStore = {
         5000,
         'Timed out reading browser push subscription.',
       );
+      if (sub && !keysMatch(sub.options?.applicationServerKey, appServerKey)) {
+        await sub.unsubscribe().catch(() => false);
+        sub = null;
+      }
       if (!sub) {
         sub = await withTimeout(
           reg.pushManager.subscribe({

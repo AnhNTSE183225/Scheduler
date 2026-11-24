@@ -8,11 +8,15 @@ use futures::stream::{self, StreamExt};
 use serde::Serialize;
 use std::net::IpAddr;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 use tracing::{info, warn};
 use web_push_native::{
     Auth, WebPushBuilder,
-    jwt_simple::algorithms::{ECDSAP256PublicKeyLike, ES256KeyPair},
+    jwt_simple::{
+        algorithms::{ECDSAP256KeyPairLike, ECDSAP256PublicKeyLike, ES256KeyPair},
+        claims::Claims,
+        prelude::Duration as JwtDuration,
+    },
     p256::PublicKey,
 };
 
@@ -207,7 +211,15 @@ impl<PR: PushRepository> PushService<PR> {
     ) -> Result<bool, String> {
         validate_push_endpoint(&sub.endpoint).map_err(|e| e.to_string())?;
 
-        let endpoint = sub.endpoint.parse().map_err(|e| format!("Bad endpoint URI: {e}"))?;
+        let endpoint_uri: Uri = sub.endpoint.parse().map_err(|e| format!("Bad endpoint URI: {e}"))?;
+        let scheme = endpoint_uri
+            .scheme_str()
+            .ok_or_else(|| "Missing scheme in push endpoint".to_string())?;
+        let host = endpoint_uri
+            .host()
+            .ok_or_else(|| "Missing host in push endpoint".to_string())?;
+        let audience = format!("{scheme}://{host}");
+
         let p256dh_bytes = Base64UrlUnpadded::decode_vec(&sub.p256dh)
             .map_err(|e| format!("Bad p256dh base64: {e}"))?;
         let auth_bytes = Base64UrlUnpadded::decode_vec(&sub.auth)
@@ -220,18 +232,31 @@ impl<PR: PushRepository> PushService<PR> {
         }
         let browser_auth = Auth::clone_from_slice(&auth_bytes);
 
-        let builder = WebPushBuilder::new(endpoint, browser_pub, browser_auth)
-            .with_vapid(self.key_pair.as_ref(), &self.subject);
+        let builder = WebPushBuilder::new(endpoint_uri, browser_pub, browser_auth)
+            .with_valid_duration(Duration::from_secs(12 * 3600));
 
         let http_req = builder
             .build(json_payload.as_bytes())
             .map_err(|e| format!("Push encryption error: {e}"))?;
+
+        // Build RFC 8292 VAPID JWT without a strict `nbf` (avoids 403 rejections when local clock leads by a few seconds).
+        let mut claims = Claims::create(JwtDuration::from_secs(12 * 3600))
+            .with_audience(audience)
+            .with_subject(&self.subject);
+        claims.invalid_before = None;
+        claims.issued_at = None;
+        let jwt = self
+            .key_pair
+            .sign(claims)
+            .map_err(|e| format!("VAPID JWT signing error: {e}"))?;
+        let auth_header = format!("vapid t={jwt}, k={}", self.public_key_b64);
 
         let (parts, body) = http_req.into_parts();
         let mut req = self.http.request(parts.method, parts.uri.to_string());
         for (name, val) in parts.headers.iter() {
             req = req.header(name.as_str(), val.as_bytes());
         }
+        req = req.header(axum::http::header::AUTHORIZATION, auth_header);
         req = req.body(body);
 
         let resp = req.send().await.map_err(|e| format!("HTTP send error: {e}"))?;

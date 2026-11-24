@@ -6,6 +6,10 @@ self.addEventListener('activate', (event) => {
   event.waitUntil(self.clients.claim());
 });
 
+self.addEventListener('fetch', () => {
+  // Pass-through handler so Chromium recognizes the Service Worker as installable.
+});
+
 self.addEventListener('push', (event) => {
   let payload = {
     title: 'PulsePlan Event Reminder',

@@ -216,14 +216,34 @@ export function SchedulePage() {
             </Show>
           </div>
 
-          <div class="flex items-center gap-2 flex-wrap">
-            <CustomSelect
-              value={filter()}
-              onChange={setFilter}
-              options={FILTER_OPTIONS}
-              ariaLabel="Filter events"
-              className="w-44"
-            />
+          <div class="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+            <div class="flex items-center gap-2 w-full sm:contents">
+              <CustomSelect
+                value={filter()}
+                onChange={setFilter}
+                options={FILTER_OPTIONS}
+                ariaLabel="Filter events"
+                className="flex-1 min-w-0 sm:w-44 sm:flex-none sm:order-1"
+              />
+
+              <button
+                type="button"
+                onClick={() => void handleRefresh()}
+                title="Refresh schedule"
+                aria-label="Refresh schedule"
+                class="h-9 w-9 shrink-0 rounded-lg border border-border bg-card/70 hover:bg-accent grid place-items-center sm:order-3"
+              >
+                <RefreshCw size={13} class={refreshing() ? 'animate-spin' : ''} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setEditing({ date: cursor() })}
+                class="h-9 px-3.5 shrink-0 rounded-lg bg-primary text-primary-foreground text-xs font-semibold inline-flex items-center gap-1.5 hover:opacity-90 sm:order-4"
+              >
+                <Plus size={14} /> New event
+              </button>
+            </div>
 
             <SlidingSegmentedControl<View>
               value={view()}
@@ -233,26 +253,10 @@ export function SchedulePage() {
                 { value: 'month', label: 'Month' },
                 { value: 'week', label: 'Week' },
               ]}
+              className="w-full sm:w-auto sm:order-2"
+              buttonClassName="flex-1 sm:flex-initial py-1.5 text-xs"
               ariaLabel="Calendar view"
             />
-
-            <button
-              type="button"
-              onClick={() => void handleRefresh()}
-              title="Refresh schedule"
-              aria-label="Refresh schedule"
-              class="h-9 w-9 rounded-lg border border-border bg-card/70 hover:bg-accent grid place-items-center"
-            >
-              <RefreshCw size={13} class={refreshing() ? 'animate-spin' : ''} />
-            </button>
-
-            <button
-              type="button"
-              onClick={() => setEditing({ date: cursor() })}
-              class="h-9 px-3.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold inline-flex items-center gap-1.5 hover:opacity-90"
-            >
-              <Plus size={14} /> New event
-            </button>
           </div>
         </div>
 

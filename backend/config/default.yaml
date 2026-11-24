@@ -14,5 +14,5 @@ auth:
   admin_username: ""
 
 push:
-  subject: "mailto:scheduler@localhost"
+  subject: "mailto:notifications@pulseplan.app"
   vapid_private_key: ""

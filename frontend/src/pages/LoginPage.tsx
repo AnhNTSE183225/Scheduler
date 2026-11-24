@@ -1,5 +1,6 @@
 import { Show, createSignal } from 'solid-js';
 import { CalendarDays, Loader2, LogIn, UserPlus } from 'lucide-solid';
+import { PwaInstallBanner } from '@/components/schedule/PwaInstallBanner';
 import { SlidingSegmentedControl } from '@/components/ui/SlidingSegmentedControl';
 import { authStore } from '@/stores/authStore';
 
@@ -53,7 +54,10 @@ export function LoginPage() {
   };
 
   return (
-    <div class="min-h-[calc(100dvh-58px)] flex items-center justify-center p-4">
+    <div class="min-h-[calc(100dvh-58px)] flex flex-col items-center justify-center gap-4 p-4">
+      <div class="w-full max-w-md">
+        <PwaInstallBanner installOnly />
+      </div>
       <div class="glass-surface w-full max-w-md p-7 space-y-6">
         <div class="text-center space-y-2">
           <div class="mx-auto w-12 h-12 rounded-2xl bg-primary/15 border border-primary/30 text-primary flex items-center justify-center">

@@ -1,6 +1,7 @@
 import { apiFetch } from './client';
 import type {
   CalendarSpace,
+  GroupMember,
   RsvpScope,
   RsvpStatus,
   ScheduleEvent,
@@ -31,6 +32,19 @@ export function joinCalendarSpace(inviteCode: string): Promise<StateMachineDTO<{
   return apiFetch('/calendars/join', {
     method: 'POST',
     body: JSON.stringify({ inviteCode }),
+  });
+}
+
+export function fetchCalendarMembers(calendarId: string): Promise<StateMachineDTO<{ members: GroupMember[] }>> {
+  return apiFetch(`/calendars/${encodeURIComponent(calendarId)}/members`);
+}
+
+export function deleteCalendarMember(
+  calendarId: string,
+  memberId: string,
+): Promise<StateMachineDTO<{ removed: boolean }>> {
+  return apiFetch(`/calendars/${encodeURIComponent(calendarId)}/members/${encodeURIComponent(memberId)}`, {
+    method: 'DELETE',
   });
 }
 
