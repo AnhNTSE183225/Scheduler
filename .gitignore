@@ -21,3 +21,8 @@ frontend/.vite/
 .env.local
 .DS_Store
 Thumbs.db
+.agent/
+.agents/
+.cursor/
+.harness/
+AGENTS.md
