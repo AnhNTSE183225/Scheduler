@@ -2,6 +2,7 @@ import { For, Show, createEffect, createSignal, on } from 'solid-js';
 import { Check, Copy, LogOut, Trash2, Users, X } from 'lucide-solid';
 import { deleteCalendarMember, fetchCalendarMembers } from '@/api/schedule';
 import { AvatarBadge } from '@/components/schedule/AvatarBadge';
+import { CustomSelect } from '@/components/ui/CustomSelect';
 import { Dialog } from '@/components/ui/Dialog';
 import { SlidingSegmentedControl } from '@/components/ui/SlidingSegmentedControl';
 import type { GroupMember } from '@/models/schedule';
@@ -22,7 +23,13 @@ export function GroupModal(props: {
   const [error, setError] = createSignal('');
   const [copiedCode, setCopiedCode] = createSignal(false);
 
-  const activeCal = () => authStore.calendars().find((c) => c.id === authStore.activeCalendarId());
+  const [selectedGroupId, setSelectedGroupId] = createSignal('');
+
+  const groupCalendars = () => authStore.calendars().filter((c) => !c.isPersonal);
+  const activeCal = () => {
+    const groups = groupCalendars();
+    return groups.find((c) => c.id === selectedGroupId()) || groups[0];
+  };
   const currentUserId = () => authStore.user()?.id ?? '';
 
   const loadMembers = async (calId: string) => {
@@ -62,7 +69,7 @@ export function GroupModal(props: {
         props.onClose();
       } else {
         setMembers((prev) => prev.filter((m) => m.id !== member.id));
-        await scheduleStore.load(cal.id);
+        await scheduleStore.loadAll(authStore.calendars());
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to update members');
@@ -115,6 +122,20 @@ export function GroupModal(props: {
       </div>
 
       <div class="p-6 space-y-5 overflow-y-auto">
+        <Show when={groupCalendars().length > 1}>
+          <div class="space-y-1.5">
+            <div class="text-[11px] uppercase tracking-wider text-muted-foreground font-semibold">
+              Manage Group
+            </div>
+            <CustomSelect
+              value={activeCal()?.id || ''}
+              onChange={setSelectedGroupId}
+              options={groupCalendars().map((g) => ({ value: g.id, label: g.name }))}
+              ariaLabel="Select group to manage"
+            />
+          </div>
+        </Show>
+
         <Show when={activeCal() && !activeCal()!.isPersonal ? activeCal() : undefined}>
           {(cal) => (
             <>

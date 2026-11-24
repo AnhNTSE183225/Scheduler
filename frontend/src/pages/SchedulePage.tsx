@@ -26,12 +26,14 @@ import {
 import { CustomSelect, type SelectOption } from '@/components/ui/CustomSelect';
 import { SlidingSegmentedControl } from '@/components/ui/SlidingSegmentedControl';
 import { AgendaView } from '@/components/schedule/AgendaView';
+import { CalendarFilterDropdown } from '@/components/schedule/CalendarFilterDropdown';
 import { MonthGrid } from '@/components/schedule/MonthGrid';
 import { WeekGrid } from '@/components/schedule/WeekGrid';
 import { EventDetailsDialog } from '@/components/schedule/EventDetailsDialog';
 import { EventEditorDialog } from '@/components/schedule/EventEditorDialog';
 import { GroupModal } from '@/components/schedule/GroupModal';
 import { PwaInstallBanner } from '@/components/schedule/PwaInstallBanner';
+import { getCalendarLabel } from '@/lib/calendarColors';
 import { expandEvents, getResponse, isInvited } from '@/lib/recurrence';
 import type { Occurrence, RsvpScope, RsvpStatus, ScheduleEvent } from '@/models/schedule';
 import { authStore } from '@/stores/authStore';
@@ -56,18 +58,31 @@ export function SchedulePage() {
   const [groupModalOpen, setGroupModalOpen] = createSignal(false);
   const [slideDir, setSlideDir] = createSignal<'right' | 'left'>('right');
   const [refreshing, setRefreshing] = createSignal(false);
+  const [hiddenCalendarIds, setHiddenCalendarIds] = createSignal<string[]>([]);
 
   createEffect(
     on(
-      () => authStore.activeCalendarId(),
-      (calId) => {
-        void scheduleStore.load(calId);
+      () => authStore.calendars(),
+      (cals) => {
+        void scheduleStore.loadAll(cals);
       },
     ),
   );
 
   const userId = () => authStore.user()?.id || '';
-  const activeCal = () => authStore.calendars().find((c) => c.id === authStore.activeCalendarId());
+  const visibleCalendarIds = createMemo(() => {
+    const hidden = new Set(hiddenCalendarIds());
+    return authStore
+      .calendars()
+      .map((c) => c.id)
+      .filter((id) => !hidden.has(id));
+  });
+
+  const toggleCalendarVisibility = (calId: string) => {
+    setHiddenCalendarIds((prev) =>
+      prev.includes(calId) ? prev.filter((id) => id !== calId) : [...prev, calId],
+    );
+  };
 
   const range = createMemo(() => {
     const c = cursor();
@@ -81,13 +96,17 @@ export function SchedulePage() {
     const r = range();
     const f = filter();
     const uid = userId();
-    const mems = scheduleStore.members();
-    return expandEvents(scheduleStore.events(), r.from, r.to).filter((o) => {
-      if (f === 'mine') return o.event.organizerId === uid;
-      if (f === 'invited') return isInvited(o.event, uid, mems);
-      if (f === 'pending') return isInvited(o.event, uid, mems) && !getResponse(o.event, o.key, uid);
-      return true;
-    });
+    const visible = new Set(visibleCalendarIds());
+    const memMap = scheduleStore.membersByCalendar();
+    return expandEvents(scheduleStore.events(), r.from, r.to)
+      .filter((o) => visible.has(o.event.calendarId))
+      .filter((o) => {
+        const mems = memMap[o.event.calendarId] || [];
+        if (f === 'mine') return o.event.organizerId === uid;
+        if (f === 'invited') return isInvited(o.event, uid, mems);
+        if (f === 'pending') return isInvited(o.event, uid, mems) && !getResponse(o.event, o.key, uid);
+        return true;
+      });
   });
 
   const selectedOcc = createMemo<Occurrence | null>(() => {
@@ -134,11 +153,11 @@ export function SchedulePage() {
   };
 
   const handleRefresh = async () => {
-    const calId = authStore.activeCalendarId();
-    if (!calId || refreshing()) return;
+    const cals = authStore.calendars();
+    if (!cals.length || refreshing()) return;
     setRefreshing(true);
     try {
-      await scheduleStore.load(calId);
+      await scheduleStore.loadAll(cals);
     } finally {
       setRefreshing(false);
     }
@@ -152,25 +171,12 @@ export function SchedulePage() {
             Shared Schedule &amp; Reminders
           </div>
           <h1 class="text-xl sm:text-2xl font-bold font-display">
-            {activeCal()?.name || 'My Schedule'}
+            {authStore.calendars().length > 1 ? 'All Schedules' : 'My Schedule'}
             <span class="text-primary">.</span>
           </h1>
         </div>
 
-        <div class="flex items-center gap-2 flex-wrap">
-          <Show when={authStore.calendars().length > 0}>
-            <CustomSelect
-              value={authStore.activeCalendarId() || ''}
-              onChange={(id) => authStore.setActiveCalendarId(id)}
-              options={authStore.calendars().map((c) => ({
-                value: c.id,
-                label: c.name,
-                badge: c.isPersonal ? 'Personal' : 'Group',
-              }))}
-              ariaLabel="Switch calendar group"
-              className="w-48"
-            />
-          </Show>
+        <div class="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setGroupModalOpen(true)}
@@ -216,33 +222,23 @@ export function SchedulePage() {
             </Show>
           </div>
 
-          <div class="flex flex-col sm:flex-row sm:items-center gap-2 w-full sm:w-auto">
+          <div class="flex flex-col sm:flex-row sm:items-center sm:flex-wrap gap-2 w-full sm:w-auto">
             <div class="flex items-center gap-2 w-full sm:contents">
+              <CalendarFilterDropdown
+                calendars={authStore.calendars()}
+                hiddenIds={hiddenCalendarIds()}
+                onToggle={toggleCalendarVisibility}
+                onShowAll={() => setHiddenCalendarIds([])}
+                className="flex-1 min-w-0 sm:flex-none sm:order-1"
+              />
+
               <CustomSelect
                 value={filter()}
                 onChange={setFilter}
                 options={FILTER_OPTIONS}
                 ariaLabel="Filter events"
-                className="flex-1 min-w-0 sm:w-44 sm:flex-none sm:order-1"
+                className="flex-1 min-w-0 sm:w-44 sm:flex-none sm:order-2"
               />
-
-              <button
-                type="button"
-                onClick={() => void handleRefresh()}
-                title="Refresh schedule"
-                aria-label="Refresh schedule"
-                class="h-9 w-9 shrink-0 rounded-lg border border-border bg-card/70 hover:bg-accent grid place-items-center sm:order-3"
-              >
-                <RefreshCw size={13} class={refreshing() ? 'animate-spin' : ''} />
-              </button>
-
-              <button
-                type="button"
-                onClick={() => setEditing({ date: cursor() })}
-                class="h-9 px-3.5 shrink-0 rounded-lg bg-primary text-primary-foreground text-xs font-semibold inline-flex items-center gap-1.5 hover:opacity-90 sm:order-4"
-              >
-                <Plus size={14} /> New event
-              </button>
             </div>
 
             <SlidingSegmentedControl<View>
@@ -253,10 +249,30 @@ export function SchedulePage() {
                 { value: 'month', label: 'Month' },
                 { value: 'week', label: 'Week' },
               ]}
-              className="w-full sm:w-auto sm:order-2"
+              className="w-full sm:w-auto sm:order-3"
               buttonClassName="flex-1 sm:flex-initial py-1.5 text-xs"
               ariaLabel="Calendar view"
             />
+
+            <div class="flex items-center gap-2 w-full sm:contents">
+              <button
+                type="button"
+                onClick={() => void handleRefresh()}
+                title="Refresh schedule"
+                aria-label="Refresh schedule"
+                class="h-9 w-9 shrink-0 rounded-lg border border-border bg-card/70 hover:bg-accent grid place-items-center sm:order-4"
+              >
+                <RefreshCw size={13} class={refreshing() ? 'animate-spin' : ''} />
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setEditing({ date: cursor() })}
+                class="h-9 px-3.5 flex-1 justify-center sm:flex-initial shrink-0 rounded-lg bg-primary text-primary-foreground text-xs font-semibold inline-flex items-center gap-1.5 hover:opacity-90 sm:order-5"
+              >
+                <Plus size={14} /> New event
+              </button>
+            </div>
           </div>
         </div>
 
@@ -275,7 +291,8 @@ export function SchedulePage() {
               <AgendaView
                 occurrences={occurrences()}
                 userId={userId()}
-                members={scheduleStore.members()}
+                calendars={authStore.calendars()}
+                membersByCalendar={scheduleStore.membersByCalendar()}
                 onOpen={(o) => setSelected({ id: o.event.id, key: o.key })}
               />
             </div>
@@ -286,6 +303,7 @@ export function SchedulePage() {
                 cursor={cursor()}
                 occurrences={occurrences()}
                 userId={userId()}
+                calendars={authStore.calendars()}
                 onOpen={(o) => setSelected({ id: o.event.id, key: o.key })}
                 onDay={(d) => setEditing({ date: d })}
               />
@@ -297,7 +315,8 @@ export function SchedulePage() {
                 cursor={cursor()}
                 occurrences={occurrences()}
                 userId={userId()}
-                members={scheduleStore.members()}
+                calendars={authStore.calendars()}
+                membersByCalendar={scheduleStore.membersByCalendar()}
                 onOpen={(o) => setSelected({ id: o.event.id, key: o.key })}
               />
             </div>
@@ -309,8 +328,12 @@ export function SchedulePage() {
         occ={selectedOcc()}
         userId={userId()}
         isAdmin={authStore.isAdmin()}
-        members={scheduleStore.members()}
-        calendarName={activeCal()?.name || 'Schedule'}
+        members={selectedOcc() ? scheduleStore.membersForCalendar(selectedOcc()!.event.calendarId) : []}
+        calendarName={
+          selectedOcc()
+            ? getCalendarLabel(selectedOcc()!.event.calendarId, authStore.calendars())
+            : 'Schedule'
+        }
         onClose={() => setSelected(null)}
         onEdit={() => {
           const occ = selectedOcc();
@@ -319,34 +342,32 @@ export function SchedulePage() {
         }}
         onDelete={async (whole) => {
           const occ = selectedOcc();
-          const calId = authStore.activeCalendarId();
-          if (!occ || !calId) return;
-          await scheduleStore.deleteEvent(calId, occ.event.id, whole ? undefined : occ.key);
+          if (!occ) return;
+          await scheduleStore.deleteEvent(occ.event.calendarId, occ.event.id, whole ? undefined : occ.key);
           setSelected(null);
         }}
         onRespond={async (rsvpStatus: RsvpStatus, scope: RsvpScope) => {
           const occ = selectedOcc();
-          const calId = authStore.activeCalendarId();
-          if (!occ || !calId) return;
-          await scheduleStore.respondEvent(calId, occ.event.id, occ.key, rsvpStatus, scope);
+          if (!occ) return;
+          await scheduleStore.respondEvent(occ.event.calendarId, occ.event.id, occ.key, rsvpStatus, scope);
         }}
       />
 
       <EventEditorDialog
         open={Boolean(editing())}
         userId={userId()}
-        members={scheduleStore.members()}
+        calendars={authStore.calendars()}
+        membersByCalendar={scheduleStore.membersByCalendar()}
+        defaultCalendarId={visibleCalendarIds()[0] || authStore.calendars()[0]?.id}
         initial={editing()?.event}
         date={editing()?.date}
         onClose={() => setEditing(null)}
-        onSave={async (data) => {
-          const calId = authStore.activeCalendarId();
-          if (!calId) return;
+        onSave={async (calendarId, data) => {
           const init = editing()?.event;
           if (init) {
-            await scheduleStore.updateEvent(calId, init.id, data);
+            await scheduleStore.updateEvent(init.calendarId, init.id, data);
           } else {
-            await scheduleStore.createEvent(calId, data);
+            await scheduleStore.createEvent(calendarId, data);
           }
           setEditing(null);
         }}

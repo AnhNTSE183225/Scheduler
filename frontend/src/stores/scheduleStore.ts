@@ -20,26 +20,26 @@ import type {
 
 const [status, setStatus] = createSignal<EntityStatus>('idle');
 const [events, setEvents] = createSignal<ScheduleEvent[]>([]);
-const [members, setMembers] = createSignal<ServerMember[]>([]);
-const [calendar, setCalendar] = createSignal<CalendarSpace | null>(null);
+const [membersByCalendar, setMembersByCalendar] = createSignal<Record<string, ServerMember[]>>({});
+const [loadedCalendars, setLoadedCalendars] = createSignal<CalendarSpace[]>([]);
 const [errorMsg, setErrorMsg] = createSignal<string | null>(null);
 const [liveToast, setLiveToast] = createSignal<string | null>(null);
 
-let eventSource: EventSource | null = null;
+const eventSources = new Map<string, EventSource>();
+const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
-let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-let streamSeq = 0;
+let streamEpoch = 0;
 
-function teardownStream() {
-  streamSeq += 1;
-  if (reconnectTimer) {
-    clearTimeout(reconnectTimer);
-    reconnectTimer = null;
+function teardownStreams() {
+  streamEpoch += 1;
+  for (const timer of reconnectTimers.values()) {
+    clearTimeout(timer);
   }
-  if (eventSource) {
-    eventSource.close();
-    eventSource = null;
+  reconnectTimers.clear();
+  for (const es of eventSources.values()) {
+    es.close();
   }
+  eventSources.clear();
   if (toastTimer) {
     clearTimeout(toastTimer);
     toastTimer = null;
@@ -49,7 +49,7 @@ function teardownStream() {
 function transitionTo(next: EntityStatus, reason: string) {
   const prev = untrack(status);
   if (next === 'idle' || next === 'disconnected' || next === 'error') {
-    teardownStream();
+    teardownStreams();
   }
   if (prev !== next) {
     console.info(`[FSM] Entity schedule: ${prev} -> ${next} (Reason: ${reason})`);
@@ -63,47 +63,76 @@ function showToast(msg: string) {
   toastTimer = setTimeout(() => setLiveToast(null), 5000);
 }
 
+async function refreshSingleCalendar(calendarId: string) {
+  try {
+    const res = await fetchScheduleData(calendarId);
+    setEvents((prev) => [
+      ...prev.filter((e) => e.calendarId !== calendarId),
+      ...(res.data.events || []),
+    ]);
+    setMembersByCalendar((prev) => ({
+      ...prev,
+      [calendarId]: res.data.members || [],
+    }));
+  } catch {}
+}
+
 export const scheduleStore = {
   status,
   events,
-  members,
-  calendar,
+  membersByCalendar,
+  membersForCalendar: (calendarId: string): ServerMember[] =>
+    membersByCalendar()[calendarId] || [],
   errorMsg,
   liveToast,
   clearToast: () => setLiveToast(null),
 
-  async load(calendarId: string | null) {
-    if (!calendarId) {
+  async loadAll(calendars: CalendarSpace[]) {
+    setLoadedCalendars(calendars);
+    if (!calendars.length) {
       setEvents([]);
-      setMembers([]);
-      setCalendar(null);
-      transitionTo('idle', 'No calendar selected');
+      setMembersByCalendar({});
+      transitionTo('idle', 'No calendars available');
       return;
     }
 
-    transitionTo('loading', `Fetching schedule for ${calendarId}`);
+    transitionTo('loading', `Fetching schedules for ${calendars.length} calendar(s)`);
     setErrorMsg(null);
     try {
-      const res = await fetchScheduleData(calendarId);
-      setEvents(res.data.events || []);
-      setMembers(res.data.members || []);
-      setCalendar(res.data.calendar || null);
-      transitionTo('active', `Loaded ${res.data.events.length} events`);
-      void scheduleStore.connectStream(calendarId);
+      const results = await Promise.all(calendars.map((c) => fetchScheduleData(c.id)));
+      const mergedEvents: ScheduleEvent[] = [];
+      const nextMembers: Record<string, ServerMember[]> = {};
+      results.forEach((res, idx) => {
+        const calId = calendars[idx].id;
+        mergedEvents.push(...(res.data.events || []));
+        nextMembers[calId] = res.data.members || [];
+      });
+      setEvents(mergedEvents);
+      setMembersByCalendar(nextMembers);
+      transitionTo('active', `Loaded ${mergedEvents.length} events across ${calendars.length} calendar(s)`);
+      scheduleStore.syncStreams(calendars.map((c) => c.id));
     } catch (err: unknown) {
       setErrorMsg(err instanceof Error ? err.message : 'Failed to load schedule');
       transitionTo('error', 'Schedule load failed');
     }
   },
 
-  async connectStream(calendarId: string) {
-    teardownStream();
+  syncStreams(calendarIds: string[]) {
+    teardownStreams();
     if (!getStoredToken()) return;
+    const epoch = streamEpoch;
 
-    const mySeq = streamSeq;
+    for (const calId of calendarIds) {
+      void scheduleStore.connectStream(calId, epoch);
+    }
+  },
+
+  async connectStream(calendarId: string, epoch: number) {
+    if (!getStoredToken() || epoch !== streamEpoch) return;
+
     try {
       const ticketRes = await postStreamTicket(calendarId);
-      if (mySeq !== streamSeq) return;
+      if (epoch !== streamEpoch) return;
 
       const es = new EventSource(
         `${API_BASE}/api/stream/${encodeURIComponent(calendarId)}?ticket=${encodeURIComponent(ticketRes.data.ticket)}`,
@@ -115,28 +144,25 @@ export const scheduleStore = {
           if (msg.kind === 'reminder' && msg.title) {
             showToast(`${msg.title}${msg.message ? ` — ${msg.message}` : ''}`);
           }
-          // Silently refresh events on remote mutations
-          void fetchScheduleData(calendarId).then((res) => {
-            setEvents(res.data.events || []);
-            setMembers(res.data.members || []);
-          });
+          void refreshSingleCalendar(calendarId);
         } catch {}
       });
       es.onerror = () => {
-        // Tickets are single-use; close and request a fresh ticket on transient drop
         es.close();
-        if (eventSource === es) {
-          eventSource = null;
+        if (eventSources.get(calendarId) === es) {
+          eventSources.delete(calendarId);
         }
-        if (mySeq === streamSeq && getStoredToken()) {
-          reconnectTimer = setTimeout(() => {
-            if (mySeq === streamSeq) {
-              void scheduleStore.connectStream(calendarId);
+        if (epoch === streamEpoch && getStoredToken()) {
+          const timer = setTimeout(() => {
+            reconnectTimers.delete(calendarId);
+            if (epoch === streamEpoch) {
+              void scheduleStore.connectStream(calendarId, epoch);
             }
           }, 5000);
+          reconnectTimers.set(calendarId, timer);
         }
       };
-      eventSource = es;
+      eventSources.set(calendarId, es);
     } catch {
       // Non-fatal: schedule data already loaded over HTTPS/REST
     }
@@ -144,26 +170,26 @@ export const scheduleStore = {
 
   disconnect() {
     setEvents([]);
-    setMembers([]);
-    setCalendar(null);
+    setMembersByCalendar({});
+    setLoadedCalendars([]);
     transitionTo('disconnected', 'Disconnected from schedule');
   },
 
   async createEvent(calendarId: string, payload: Partial<ScheduleEvent>) {
     const res = await postScheduleEvent(calendarId, payload);
-    await scheduleStore.load(calendarId);
+    await scheduleStore.loadAll(untrack(loadedCalendars));
     return res.data.event;
   },
 
   async updateEvent(calendarId: string, eventId: string, payload: Partial<ScheduleEvent>) {
     const res = await putScheduleEvent(calendarId, eventId, payload);
-    await scheduleStore.load(calendarId);
+    await scheduleStore.loadAll(untrack(loadedCalendars));
     return res.data.event;
   },
 
   async deleteEvent(calendarId: string, eventId: string, occurrence?: string) {
     await removeScheduleEvent(calendarId, eventId, occurrence);
-    await scheduleStore.load(calendarId);
+    await scheduleStore.loadAll(untrack(loadedCalendars));
   },
 
   async respondEvent(
@@ -174,7 +200,7 @@ export const scheduleStore = {
     scope: RsvpScope,
   ) {
     const res = await postRespondEvent(calendarId, eventId, key, rsvpStatus, scope);
-    await scheduleStore.load(calendarId);
+    await scheduleStore.loadAll(untrack(loadedCalendars));
     return res.data.event;
   },
 };

@@ -86,14 +86,16 @@ impl<AR: AuthRepository, CR: CalendarRepository> AuthService<AR, CR> {
         password: &str,
     ) -> Result<UserSession, AppError> {
         let t0 = Instant::now();
-        let clean_display = display_name.trim();
-        if clean_display.is_empty() || clean_display.len() > 80 {
+        let clean_display: String = display_name.split_whitespace().collect::<Vec<_>>().join(" ");
+        let display_chars = clean_display.chars().count();
+        if display_chars == 0 || display_chars > 80 {
             return Err(AppError::BadRequest(
                 "Display name must be between 1 and 80 characters".to_string(),
             ));
         }
         let clean_username = Self::normalize_username(username)?;
-        if password.len() < 8 || password.len() > 128 {
+        let pass_chars = password.chars().count();
+        if pass_chars < 8 || pass_chars > 128 {
             return Err(AppError::BadRequest(
                 "Password must be between 8 and 128 characters".to_string(),
             ));
@@ -103,7 +105,7 @@ impl<AR: AuthRepository, CR: CalendarRepository> AuthService<AR, CR> {
         let user = User {
             id: format!("usr-{}", uuid::Uuid::new_v4().simple()),
             username: clean_username,
-            display_name: clean_display.to_string(),
+            display_name: clean_display,
             avatar: None,
         };
 

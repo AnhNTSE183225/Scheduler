@@ -3,8 +3,9 @@ import { addDays, format, isSameDay, isToday, startOfDay } from 'date-fns';
 import { CalendarDays, Link2, MapPin, Repeat2 } from 'lucide-solid';
 import { getCategoryMeta } from '@/components/pickers/CategoryMeta';
 import { AvatarBadge } from './AvatarBadge';
+import { getCalendarColor, getCalendarLabel } from '@/lib/calendarColors';
 import { getResponse, isInvited } from '@/lib/recurrence';
-import type { Occurrence, ScheduleEventLocation, ServerMember } from '@/models/schedule';
+import type { CalendarSpace, Occurrence, ScheduleEventLocation, ServerMember } from '@/models/schedule';
 
 function LocationLabel(props: { location: ScheduleEventLocation | null }) {
   return (
@@ -32,7 +33,8 @@ function LocationLabel(props: { location: ScheduleEventLocation | null }) {
 export function AgendaView(props: {
   occurrences: Occurrence[];
   userId: string;
-  members: ServerMember[];
+  calendars: CalendarSpace[];
+  membersByCalendar: Record<string, ServerMember[]>;
   onOpen: (o: Occurrence) => void;
 }) {
   const groups = createMemo(() => {
@@ -76,14 +78,22 @@ export function AgendaView(props: {
                 <For each={g.items}>
                   {(o) => {
                     const status = () => getResponse(o.event, o.key, props.userId);
-                    const organizer = () => props.members.find((m) => m.id === o.event.organizerId);
+                    const calMembers = () => props.membersByCalendar[o.event.calendarId] || [];
+                    const organizer = () => calMembers().find((m) => m.id === o.event.organizerId);
+                    const calTheme = () => getCalendarColor(o.event.calendarId, props.calendars);
+                    const calLabel = () => getCalendarLabel(o.event.calendarId, props.calendars);
                     const isStartDay = () => isSameDay(o.start, g.day);
                     const isEndDay = () => isSameDay(o.end, g.day);
                     const CatIcon = getCategoryMeta(o.event.category, o.event.title, o.event.description).icon;
-                    const invited = () => isInvited(o.event, props.userId, props.members);
+                    const invited = () => isInvited(o.event, props.userId, calMembers());
 
                     return (
-                      <button type="button" class="agenda-item" onClick={() => props.onOpen(o)}>
+                      <button
+                        type="button"
+                        class="agenda-item"
+                        style={{ 'border-left': `3px solid ${calTheme().accent}` }}
+                        onClick={() => props.onOpen(o)}
+                      >
                         <span class="agenda-time font-mono">
                           {isStartDay() ? format(o.start, 'HH:mm') : '00:00'}
                           <br />
@@ -105,6 +115,20 @@ export function AgendaView(props: {
                           </span>
 
                           <span class="flex items-center gap-3 text-xs text-muted-foreground min-w-0 flex-wrap">
+                            <span
+                              class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-medium shrink-0"
+                              style={{
+                                background: calTheme().bgTint,
+                                border: `1px solid ${calTheme().borderTint}`,
+                                color: calTheme().accent,
+                              }}
+                            >
+                              <span
+                                class="w-1.5 h-1.5 rounded-full shrink-0"
+                                style={{ background: calTheme().accent }}
+                              />
+                              <span class="truncate max-w-[120px]">{calLabel()}</span>
+                            </span>
                             <LocationLabel location={o.event.location} />
                             <Show when={organizer() || o.event.organizerName}>
                               <span class="shrink-0 flex items-center gap-1.5">

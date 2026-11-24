@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createMemo, createSignal } from 'solid-js';
-import { addMonths, format, isSameDay, parseISO, startOfDay } from 'date-fns';
+import { addMinutes, addMonths, format, isSameDay, parseISO, startOfDay } from 'date-fns';
 import { CalendarDays, Check, Image as ImageIcon, Loader2, Plus, Search, X } from 'lucide-solid';
 import { Dialog } from '@/components/ui/Dialog';
 import { CustomSelect, type SelectOption } from '@/components/ui/CustomSelect';
@@ -7,11 +7,11 @@ import { SlidingSegmentedControl } from '@/components/ui/SlidingSegmentedControl
 import { EVENT_CATEGORIES, inferCategory } from '@/components/pickers/CategoryMeta';
 import { CustomDatePicker } from '@/components/pickers/CustomDatePicker';
 import { CustomTimePicker } from '@/components/pickers/CustomTimePicker';
-import { CustomDurationPicker } from '@/components/pickers/CustomDurationPicker';
 import { LocationMapPreview } from '@/components/pickers/LocationMapPreview';
 import { AvatarBadge } from './AvatarBadge';
 import { WEEKDAY_SHORT } from '@/lib/recurrence';
 import type {
+  CalendarSpace,
   EventCategory,
   ScheduleEvent,
   ScheduleEventLink,
@@ -27,11 +27,13 @@ type EndsKind = 'never' | 'until' | 'count';
 export function EventEditorDialog(props: {
   open: boolean;
   userId: string;
-  members: ServerMember[];
+  calendars: CalendarSpace[];
+  membersByCalendar: Record<string, ServerMember[]>;
+  defaultCalendarId?: string;
   initial?: ScheduleEvent;
   date?: Date;
   onClose: () => void;
-  onSave: (data: Partial<ScheduleEvent>) => Promise<void>;
+  onSave: (calendarId: string, data: Partial<ScheduleEvent>) => Promise<void>;
 }) {
   const defaultStart = () => {
     if (props.initial) return parseISO(props.initial.start);
@@ -47,13 +49,14 @@ export function EventEditorDialog(props: {
     return d;
   };
 
+  const [selectedCalendarId, setSelectedCalendarId] = createSignal('');
   const [title, setTitle] = createSignal('');
   const [description, setDescription] = createSignal('');
   const [category, setCategory] = createSignal<EventCategory>('other');
   const [manualCategory, setManualCategory] = createSignal(false);
   const [day, setDay] = createSignal(format(new Date(), 'yyyy-MM-dd'));
   const [time, setTime] = createSignal('19:00');
-  const [duration, setDuration] = createSignal(60);
+  const [endTime, setEndTime] = createSignal('20:00');
   const [freq, setFreq] = createSignal<FreqKind>('none');
   const [interval, setIntervalN] = createSignal(1);
   const [weekdays, setWeekdays] = createSignal<number[]>([new Date().getDay()]);
@@ -75,13 +78,16 @@ export function EventEditorDialog(props: {
     if (!props.open) return;
     const init = props.initial;
     const s0 = defaultStart();
+    setSelectedCalendarId(
+      init?.calendarId || props.defaultCalendarId || props.calendars[0]?.id || '',
+    );
     setTitle(init?.title ?? '');
     setDescription(init?.description ?? '');
     setCategory(init?.category ?? 'other');
     setManualCategory(Boolean(init?.category && init.category !== 'other'));
     setDay(format(s0, 'yyyy-MM-dd'));
     setTime(format(s0, 'HH:mm'));
-    setDuration(init?.durationMinutes ?? 60);
+    setEndTime(format(addMinutes(s0, init?.durationMinutes ?? 60), 'HH:mm'));
     setFreq(init?.recurrence?.freq ?? 'none');
     setIntervalN(init?.recurrence?.interval ?? 1);
     setWeekdays(init?.recurrence?.weekdays ?? [s0.getDay()]);
@@ -101,7 +107,8 @@ export function EventEditorDialog(props: {
 
   const filteredOthers = createMemo(() => {
     const q = memberSearch().trim().toLowerCase();
-    return props.members
+    const calMembers = props.membersByCalendar[selectedCalendarId()] || [];
+    return calMembers
       .filter((m) => m.id !== props.userId)
       .filter((m) => !q || m.name.toLowerCase().includes(q));
   });
@@ -151,6 +158,21 @@ export function EventEditorDialog(props: {
             count: ends() === 'count' ? Math.max(1, count()) : null,
           };
 
+    const parseMins = (hhmm: string) => {
+      const [h, m] = hhmm.split(':').map((n) => Number.parseInt(n, 10));
+      return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
+    };
+    let durationMinutes = parseMins(endTime()) - parseMins(time());
+    if (durationMinutes === 0) {
+      return setError('End time must be different from start time.');
+    }
+    if (durationMinutes < 0) {
+      durationMinutes += 24 * 60;
+    }
+    if (durationMinutes < 15) {
+      return setError('Event must be at least 15 minutes long.');
+    }
+
     const localDate = new Date(`${day()}T${time()}`);
     if (!isNaN(localDate.getTime())) {
       const isPast = localDate.getTime() < Date.now() - 60000;
@@ -165,7 +187,7 @@ export function EventEditorDialog(props: {
       description: description(),
       category: category(),
       start: startIso,
-      durationMinutes: Math.max(15, duration()),
+      durationMinutes: Math.min(1440, durationMinutes),
       recurrence,
       location,
       imageUrl: imageUrl().trim() || null,
@@ -177,7 +199,7 @@ export function EventEditorDialog(props: {
     setSaving(true);
     setError('');
     try {
-      await props.onSave(data);
+      await props.onSave(selectedCalendarId(), data);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to save event');
     } finally {
@@ -205,6 +227,37 @@ export function EventEditorDialog(props: {
       </div>
 
       <div class="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+        <Show when={props.calendars.length > 0}>
+          <div class="flex flex-col gap-1.5">
+            <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Calendar</span>
+            <Show
+              when={!props.initial}
+              fallback={
+                <div class="h-9 px-3 rounded-lg border border-border bg-card/40 text-xs font-medium text-muted-foreground flex items-center">
+                  {(() => {
+                    const c = props.calendars.find((x) => x.id === selectedCalendarId());
+                    return c ? (c.isPersonal ? 'Personal' : c.name) : 'Calendar';
+                  })()}
+                </div>
+              }
+            >
+              <CustomSelect
+                value={selectedCalendarId()}
+                onChange={(id) => {
+                  setSelectedCalendarId(id);
+                  setInvitees([]);
+                }}
+                options={props.calendars.map((c) => ({
+                  value: c.id,
+                  label: c.isPersonal ? 'Personal' : c.name,
+                  badge: c.isPersonal ? 'Personal' : 'Group',
+                }))}
+                ariaLabel="Select calendar"
+              />
+            </Show>
+          </div>
+        </Show>
+
         <div class="flex flex-col gap-1.5">
           <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Title</span>
           <input
@@ -244,8 +297,8 @@ export function EventEditorDialog(props: {
             <CustomTimePicker value={time()} onChange={setTime} />
           </div>
           <div class="flex flex-col gap-1.5">
-            <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Length</span>
-            <CustomDurationPicker value={duration()} onChange={setDuration} />
+            <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">End Time</span>
+            <CustomTimePicker value={endTime()} onChange={setEndTime} />
           </div>
         </div>
 

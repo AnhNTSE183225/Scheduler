@@ -1,5 +1,6 @@
 import { Show, createMemo, createSignal, onMount } from 'solid-js';
 import { CalendarDays, Loader2, LogOut } from 'lucide-solid';
+import { getStoredToken } from '@/api/client';
 import { AvatarBadge } from '@/components/schedule/AvatarBadge';
 import { LoginPage } from '@/pages/LoginPage';
 import { PublicEventPage } from '@/pages/PublicEventPage';
@@ -82,7 +83,7 @@ export function App() {
         fallback={<PublicEventPage shareToken={publicShareToken()!} onBackHome={goHome} />}
       >
         <Show
-          when={authStore.status() !== 'loading' || authStore.user()}
+          when={authStore.status() !== 'loading' || Boolean(authStore.user()) || !getStoredToken()}
           fallback={
             <div class="flex-1 flex items-center justify-center p-8 text-sm text-muted-foreground gap-2">
               <Loader2 size={18} class="animate-spin text-primary" /> Loading PulsePlan...

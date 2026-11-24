@@ -30,23 +30,30 @@ export function LoginPage() {
     const p = password();
 
     if (mode() === 'register') {
-      const dn = displayName().trim();
-      if (!dn) {
-        setLocalError('Please enter a display name.');
+      const dn = displayName().trim().replace(/\s+/g, ' ');
+      setDisplayName(dn);
+      setUsername(u);
+      if (!dn || dn.length > 80) {
+        setLocalError('Display name must be 1–80 characters.');
         return;
       }
-      if (u.length < 3 || u.length > 32) {
+      if (u.length < 3 || u.length > 32 || !/^[a-zA-Z0-9._-]+$/.test(u)) {
         setLocalError('Username must be 3–32 characters (letters, numbers, ., _, -).');
         return;
       }
-      if (p.length < 8) {
-        setLocalError('Password must be at least 8 characters.');
+      if (p.length < 8 || p.length > 128) {
+        setLocalError('Password must be 8–128 characters.');
         return;
       }
       await authStore.register(dn, u, p);
     } else {
+      setUsername(u);
       if (!u || !p) {
         setLocalError('Please enter your username and password.');
+        return;
+      }
+      if (u.length < 3 || u.length > 32 || !/^[a-zA-Z0-9._-]+$/.test(u)) {
+        setLocalError('Username must be 3–32 characters (letters, numbers, ., _, -).');
         return;
       }
       await authStore.login(u, p);

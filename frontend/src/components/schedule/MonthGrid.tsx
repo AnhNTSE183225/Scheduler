@@ -1,13 +1,15 @@
 import { For, Show, createMemo } from 'solid-js';
 import { addDays, format, isSameDay, isSameMonth, isToday, startOfMonth, startOfWeek } from 'date-fns';
 import { getCategoryMeta } from '@/components/pickers/CategoryMeta';
+import { getCalendarColor } from '@/lib/calendarColors';
 import { WEEKDAY_SHORT, getResponse, isOccurrenceOnDay } from '@/lib/recurrence';
-import type { Occurrence } from '@/models/schedule';
+import type { CalendarSpace, Occurrence } from '@/models/schedule';
 
 export function MonthGrid(props: {
   cursor: Date;
   occurrences: Occurrence[];
   userId: string;
+  calendars: CalendarSpace[];
   onOpen: (o: Occurrence) => void;
   onDay: (d: Date) => void;
 }) {
@@ -42,6 +44,7 @@ export function MonthGrid(props: {
                         ? `ends ${format(o.end, 'HH:mm')}`
                         : 'all day';
                     const st = () => getResponse(o.event, o.key, props.userId);
+                    const calTheme = () => getCalendarColor(o.event.calendarId, props.calendars);
                     const dotCls = () =>
                       st() === 'accepted'
                         ? 'is-accepted'
@@ -55,6 +58,10 @@ export function MonthGrid(props: {
                       <button
                         type="button"
                         class={`month-chip ${!isStartDay() ? 'opacity-90' : ''}`}
+                        style={{
+                          'border-left': `3px solid ${calTheme().accent}`,
+                          background: calTheme().bgTint,
+                        }}
                         onClick={(e) => {
                           e.stopPropagation();
                           props.onOpen(o);

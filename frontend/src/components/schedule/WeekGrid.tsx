@@ -2,8 +2,9 @@ import { For, Show, createMemo, onMount } from 'solid-js';
 import { addDays, format, isSameDay, isToday, startOfWeek } from 'date-fns';
 import { getCategoryMeta } from '@/components/pickers/CategoryMeta';
 import { AvatarBadge } from './AvatarBadge';
+import { getCalendarColor } from '@/lib/calendarColors';
 import { getResponse, isOccurrenceOnDay } from '@/lib/recurrence';
-import type { Occurrence, ServerMember } from '@/models/schedule';
+import type { CalendarSpace, Occurrence, ServerMember } from '@/models/schedule';
 
 const HOUR_PX = 44;
 
@@ -17,7 +18,8 @@ export function WeekGrid(props: {
   cursor: Date;
   occurrences: Occurrence[];
   userId: string;
-  members: ServerMember[];
+  calendars: CalendarSpace[];
+  membersByCalendar: Record<string, ServerMember[]>;
   onOpen: (o: Occurrence) => void;
 }) {
   let scrollRef: HTMLDivElement | undefined;
@@ -95,7 +97,9 @@ export function WeekGrid(props: {
                           const durationHours = Math.max(0.35, s.sliceEndHour - s.sliceStartHour);
                           const height = Math.max(24, durationHours * HOUR_PX - 2);
                           const CatIcon = getCategoryMeta(o.event.category, o.event.title, o.event.description).icon;
-                          const organizer = () => props.members.find((m) => m.id === o.event.organizerId);
+                          const calMembers = () => props.membersByCalendar[o.event.calendarId] || [];
+                          const organizer = () => calMembers().find((m) => m.id === o.event.organizerId);
+                          const calTheme = () => getCalendarColor(o.event.calendarId, props.calendars);
                           const isStartDay = isSameDay(o.start, d);
                           const isEndDay = isSameDay(o.end, d);
                           const timeDisplay =
@@ -126,6 +130,8 @@ export function WeekGrid(props: {
                                 height: `${height}px`,
                                 left: `${(li() / lanes().length) * 100}%`,
                                 width: `${100 / lanes().length}%`,
+                                'border-left': `3px solid ${calTheme().accent}`,
+                                background: calTheme().bgTint,
                               }}
                               title={`${o.event.title} (${format(o.start, 'MMM d, HH:mm')} – ${format(o.end, 'MMM d, HH:mm')})`}
                             >
