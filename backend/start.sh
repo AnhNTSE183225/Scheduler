@@ -81,7 +81,31 @@ export PROFILE="${PROFILE:-PROD}"
 export LOG_FORMAT="${LOG_FORMAT:-json}"
 export RUST_LOG="${RUST_LOG:-info}"
 export RUST_BACKTRACE="${RUST_BACKTRACE:-1}"
-PORT="${APP__SERVER__PORT:-8080}"
+
+# Read server.port and server.funnel_path from cascading YAML (local -> prod -> default)
+read_yaml_server_val() {
+    local key="$1"
+    local files=("$ROOT_DIR/config/local.yaml")
+    if [ "${PROFILE^^}" = "PROD" ]; then
+        files+=("$ROOT_DIR/config/prod.yaml")
+    fi
+    files+=("$ROOT_DIR/config/default.yaml")
+    for f in "${files[@]}"; do
+        if [ -f "$f" ]; then
+            local val
+            val="$(grep -E "^[[:space:]]+${key}:" "$f" | head -n 1 | sed -E "s/^[[:space:]]+${key}:[[:space:]]*//; s/#.*$//; s/^[\"']//; s/[\"'][[:space:]]*$//; s/[[:space:]]*$//")"
+            if [ -n "$val" ]; then
+                echo "$val"
+                return 0
+            fi
+        fi
+    done
+}
+
+PORT="${APP__SERVER__PORT:-$(read_yaml_server_val port)}"
+PORT="${PORT:-8080}"
+FUNNEL_PATH="${TAILSCALE_FUNNEL_PATH:-${APP__SERVER__FUNNEL_PATH:-$(read_yaml_server_val funnel_path)}}"
+FUNNEL_PATH="${FUNNEL_PATH:-/}"
 
 # 5. Start in background (stream all stdout/stderr—including panics & exit logs—into journald -> VictoriaLogs)
 echo "Starting Scheduler backend in background on port $PORT..."
@@ -106,3 +130,19 @@ fi
 echo "OK: Scheduler backend started in background (PID $BACKEND_PID) on port $PORT!"
 echo "API: http://127.0.0.1:$PORT/api/health"
 echo "Log: $RUNNER_LOG"
+
+# 6. Register shared Tailscale Funnel path (from config/prod.yaml -> server.funnel_path) if not already present
+# (Never resets existing routes like MusicBot on /, and stop.sh intentionally leaves Funnel intact.)
+if command -v tailscale >/dev/null 2>&1; then
+    FUNNEL_STATUS="$(tailscale funnel status 2>/dev/null || true)"
+    if echo "$FUNNEL_STATUS" | grep -q "${FUNNEL_PATH}.*127\.0\.0\.1:${PORT}"; then
+        echo "OK: Tailscale Funnel already serving ${FUNNEL_PATH} -> 127.0.0.1:${PORT}."
+    else
+        echo "Adding Tailscale Funnel route ${FUNNEL_PATH} -> http://127.0.0.1:${PORT}..."
+        if (sudo -n tailscale funnel --bg --yes --https=443 --set-path="$FUNNEL_PATH" "http://127.0.0.1:$PORT" >/dev/null 2>&1 || tailscale funnel --bg --yes --https=443 --set-path="$FUNNEL_PATH" "http://127.0.0.1:$PORT" >/dev/null 2>&1); then
+            echo "OK: Tailscale Funnel serving ${FUNNEL_PATH} -> 127.0.0.1:${PORT}."
+        else
+            echo "WARN: Could not configure Tailscale Funnel automatically (run once: sudo tailscale funnel --bg --yes --https=443 --set-path=${FUNNEL_PATH} http://127.0.0.1:${PORT})."
+        fi
+    fi
+fi

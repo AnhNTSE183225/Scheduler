@@ -1,4 +1,5 @@
 const TOKEN_KEY = 'pulseplan_auth_token';
+export const API_BASE = ((import.meta.env.VITE_API_BASE as string | undefined) || '').replace(/\/+$/, '');
 
 export function getStoredToken(): string | null {
   try {
@@ -25,7 +26,7 @@ export async function apiFetch<T>(path: string, init: RequestInit = {}): Promise
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`/api${path}`, {
+  const res = await fetch(`${API_BASE}/api${path}`, {
     ...init,
     headers,
   });

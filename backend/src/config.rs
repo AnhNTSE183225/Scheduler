@@ -5,6 +5,9 @@ use serde::Deserialize;
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
+    #[serde(default)]
+    #[allow(dead_code)]
+    pub funnel_path: String,
     pub frontend_url: String,
     pub cors_origins: Vec<String>,
 }

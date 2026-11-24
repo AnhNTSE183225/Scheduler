@@ -1,5 +1,5 @@
 import { createSignal, untrack } from 'solid-js';
-import { getStoredToken } from '@/api/client';
+import { API_BASE, getStoredToken } from '@/api/client';
 import { postStreamTicket } from '@/api/notifications';
 import {
   fetchScheduleData,
@@ -106,7 +106,7 @@ export const scheduleStore = {
       if (mySeq !== streamSeq) return;
 
       const es = new EventSource(
-        `/api/stream/${encodeURIComponent(calendarId)}?ticket=${encodeURIComponent(ticketRes.data.ticket)}`,
+        `${API_BASE}/api/stream/${encodeURIComponent(calendarId)}?ticket=${encodeURIComponent(ticketRes.data.ticket)}`,
       );
       es.addEventListener('schedule', (e: MessageEvent) => {
         try {
