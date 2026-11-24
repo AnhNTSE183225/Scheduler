@@ -1,0 +1,25 @@
+{
+  "name": "pulseplan-scheduler-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@motionone/solid": "^10.16.4",
+    "date-fns": "^4.1.0",
+    "lucide-solid": "^0.511.0",
+    "solid-js": "^1.9.5",
+    "solid-transition-group": "^0.2.3"
+  },
+  "devDependencies": {
+    "@tailwindcss/vite": "^4.1.4",
+    "tailwindcss": "^4.1.4",
+    "typescript": "^5.8.2",
+    "vite": "^6.2.0",
+    "vite-plugin-solid": "^2.11.2"
+  }
+}

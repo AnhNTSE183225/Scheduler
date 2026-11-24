@@ -1,0 +1,23 @@
+# Build & Runtime Artifacts
+.pids
+.logs/
+.backend.log
+.frontend.log
+.victoria-logs/
+
+# Rust Backend
+backend/target/
+backend/data/
+backend/config/local.yaml
+backend/config/*.local.yaml
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# Environment & OS
+.env
+.env.local
+.DS_Store
+Thumbs.db

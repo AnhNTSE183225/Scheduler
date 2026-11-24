@@ -1,0 +1,188 @@
+# ==============================================================================
+# Deterministic Ordered Stop Script (PowerShell / Windows)
+# ==============================================================================
+
+param(
+    [switch]$Quiet,
+    [switch]$KeepLogger,
+    [int[]]$FallbackPorts = @(8080, 5173)
+)
+
+$ErrorActionPreference = "Continue"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+
+$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$pidFile = Join-Path $root ".pids"
+
+function Write-StopLog {
+    param([string]$Message, [string]$Color = "Yellow")
+    if (-not $Quiet) {
+        Write-Host $Message -ForegroundColor $Color
+    }
+}
+
+function Stop-PidTree {
+    param(
+        [int]$TargetPid,
+        [string]$Label
+    )
+    if (-not $TargetPid -or $TargetPid -le 4) { return $false }
+
+    $proc = Get-Process -Id $TargetPid -ErrorAction SilentlyContinue
+    if ($null -eq $proc) {
+        Write-StopLog "  [$Label] PID $TargetPid is already stopped." "DarkGray"
+        return $false
+    }
+
+    Write-StopLog "  [$Label] Stopping process tree for PID $TargetPid ($($proc.ProcessName))..." "Yellow"
+    try {
+        & taskkill.exe /PID $TargetPid /T /F 2>$null | Out-Null
+        Stop-Process -Id $TargetPid -Force -ErrorAction SilentlyContinue
+    } catch {}
+
+    return $true
+}
+
+function Wait-AppsConfirmedStopped {
+    param(
+        [int[]]$AppPids,
+        [int[]]$AppPorts,
+        [int]$TimeoutMs = 5000
+    )
+    $deadline = [DateTime]::UtcNow.AddMilliseconds($TimeoutMs)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $alivePid = $null
+        foreach ($p in $AppPids) {
+            if ($p -and $p -gt 4) {
+                if ($null -ne (Get-Process -Id $p -ErrorAction SilentlyContinue)) {
+                    $alivePid = $p
+                    break
+                }
+            }
+        }
+
+        $busyPort = $null
+        if ($null -eq $alivePid) {
+            foreach ($port in $AppPorts) {
+                $conn = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($conn -and $conn.OwningProcess -gt 4) {
+                    $busyPort = $port
+                    Stop-PidTree -TargetPid ([int]$conn.OwningProcess) -Label "Lingering Port $port" | Out-Null
+                    break
+                }
+            }
+        }
+
+        if (($null -eq $alivePid) -and ($null -eq $busyPort)) {
+            return $true
+        }
+        Start-Sleep -Milliseconds 100
+    }
+    return $false
+}
+
+$loggerPid = 0
+$loggerOwned = $false
+$loggerPort = 9428
+$shipperPid = 0
+$backendPid = 0
+$frontendPid = 0
+$stopSentinel = ""
+$flushDoneFile = ""
+$appPorts = @() + $FallbackPorts
+$stoppedAny = $false
+
+if (Test-Path $pidFile) {
+    Write-StopLog "Reading stored PIDs from $pidFile..." "Cyan"
+    try {
+        $pidData = Get-Content -Path $pidFile -Raw | ConvertFrom-Json
+        if ($pidData.logger_pid)      { $loggerPid     = [int]$pidData.logger_pid }
+        if ($null -ne $pidData.logger_owned) { $loggerOwned = [bool]$pidData.logger_owned }
+        if ($pidData.logger_port)     { $loggerPort    = [int]$pidData.logger_port }
+        if ($pidData.shipper_pid)     { $shipperPid    = [int]$pidData.shipper_pid }
+        if ($pidData.backend_pid)     { $backendPid    = [int]$pidData.backend_pid }
+        if ($pidData.frontend_pid)    { $frontendPid   = [int]$pidData.frontend_pid }
+        if ($pidData.stop_sentinel)   { $stopSentinel  = [string]$pidData.stop_sentinel }
+        if ($pidData.flush_done_file) { $flushDoneFile = [string]$pidData.flush_done_file }
+
+        if ($pidData.backend_port -and ($appPorts -notcontains [int]$pidData.backend_port)) {
+            $appPorts += [int]$pidData.backend_port
+        }
+        if ($pidData.frontend_port -and ($appPorts -notcontains [int]$pidData.frontend_port)) {
+            $appPorts += [int]$pidData.frontend_port
+        }
+    } catch {
+        Write-StopLog "  Warning: Could not parse .pids file; falling back to app port sweep." "Red"
+    }
+}
+
+$appPorts = @($appPorts | Where-Object { $_ -ne $loggerPort } | Select-Object -Unique)
+
+Write-StopLog "[1/4] Stopping application services (Frontend -> Backend)..." "Cyan"
+if ($frontendPid -and (Stop-PidTree -TargetPid $frontendPid -Label "Frontend")) { $stoppedAny = $true }
+if ($backendPid -and (Stop-PidTree -TargetPid $backendPid -Label "Backend")) { $stoppedAny = $true }
+
+foreach ($port in $appPorts) {
+    $listeners = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty OwningProcess -Unique
+    foreach ($owningPid in $listeners) {
+        if ($owningPid -and $owningPid -gt 4 -and $owningPid -ne $loggerPid -and $owningPid -ne $shipperPid) {
+            if (Stop-PidTree -TargetPid $owningPid -Label "App Port $port") { $stoppedAny = $true }
+        }
+    }
+}
+
+Write-StopLog "[2/4] Confirming all application processes and ports have exited..." "Cyan"
+$appsConfirmedStopped = Wait-AppsConfirmedStopped -AppPids @($frontendPid, $backendPid) -AppPorts $appPorts -TimeoutMs 5000
+if (-not $appsConfirmedStopped) {
+    Write-Host "[ERROR] Application process or port did not finish shutting down within 5s. Keeping VictoriaLogs running!" -ForegroundColor Red
+    exit 1
+}
+Write-StopLog "  OK: All app processes and ports confirmed closed." "Green"
+
+if ($shipperPid -and ($null -ne (Get-Process -Id $shipperPid -ErrorAction SilentlyContinue))) {
+    Write-StopLog "[3/4] Flushing final shutdown logs and stopping log shipper (PID $shipperPid)..." "Cyan"
+    if ($stopSentinel) {
+        $utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+        $sentinelDir = Split-Path -Parent $stopSentinel
+        if ($sentinelDir -and (Test-Path $sentinelDir)) {
+            [System.IO.File]::WriteAllText($stopSentinel, [DateTime]::UtcNow.ToString("o"), $utf8NoBom)
+        }
+    }
+    $flushDeadline = [DateTime]::UtcNow.AddSeconds(3)
+    while ([DateTime]::UtcNow -lt $flushDeadline) {
+        $shipAlive = $null -ne (Get-Process -Id $shipperPid -ErrorAction SilentlyContinue)
+        $flushAck = $flushDoneFile -and (Test-Path $flushDoneFile)
+        if ((-not $shipAlive) -or $flushAck) { break }
+        Start-Sleep -Milliseconds 100
+    }
+    if ($null -ne (Get-Process -Id $shipperPid -ErrorAction SilentlyContinue)) {
+        Stop-PidTree -TargetPid $shipperPid -Label "Log Shipper" | Out-Null
+    }
+    $stoppedAny = $true
+}
+
+foreach ($sentinelPath in @($stopSentinel, $flushDoneFile)) {
+    if ($sentinelPath -and (Test-Path $sentinelPath)) {
+        Remove-Item -Path $sentinelPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+if ($KeepLogger) {
+    Write-StopLog "[4/4] -KeepLogger set: leaving VictoriaLogs running at http://127.0.0.1:$loggerPort/select/vmui/" "Yellow"
+} elseif ($loggerPid -and ($loggerOwned -or (Test-Path $pidFile))) {
+    Write-StopLog "[4/4] Stopping VictoriaLogs last (PID $loggerPid)..." "Cyan"
+    if (Stop-PidTree -TargetPid $loggerPid -Label "VictoriaLogs") { $stoppedAny = $true }
+    $null = Wait-AppsConfirmedStopped -AppPids @($loggerPid) -AppPorts @($loggerPort) -TimeoutMs 3000
+}
+
+if (Test-Path $pidFile) {
+    Remove-Item -Path $pidFile -Force -ErrorAction SilentlyContinue
+}
+
+if ($stoppedAny) {
+    Write-StopLog "[OK] Shutdown sequence complete (Apps -> Shipper Flush -> Logger Last)." "Green"
+} else {
+    Write-StopLog "[OK] No active application or logger services were running." "Green"
+}

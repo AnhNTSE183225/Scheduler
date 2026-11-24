@@ -1,0 +1,395 @@
+# ==============================================================================
+# Fast Production Runner (PowerShell / Windows + VictoriaLogs)
+# ==============================================================================
+
+param(
+    [switch]$Background,
+    [int]$BackendPort = 8080,
+    [int]$FrontendPort = 5173,
+    [int]$LoggerPort = 9428,
+    [switch]$SkipLogger
+)
+
+$ErrorActionPreference = "Stop"
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+$OutputEncoding = [System.Text.Encoding]::UTF8
+$utf8NoBom = [System.Text.UTF8Encoding]::new($false)
+
+$root = Split-Path -Parent $MyInvocation.MyCommand.Path
+$appName = Split-Path -Leaf $root
+$pidFile = Join-Path $root ".pids"
+$stopScript = Join-Path $root "stop.ps1"
+$buildScript = Join-Path $root "build.ps1"
+$frontendDir = Join-Path $root "frontend"
+$backendDir = Join-Path $root "backend"
+$logsDir = Join-Path $root ".logs"
+
+function Find-TechstackHelper {
+    param([string]$RelativePath)
+    $candidates = @(
+        (Join-Path $root $RelativePath),
+        (Join-Path (Split-Path -Parent $root) "techstack\$RelativePath"),
+        (Join-Path (Split-Path -Parent $root) "TECHSTACK\$RelativePath"),
+        "C:\GIT\TECHSTACK\$RelativePath"
+    )
+    foreach ($cand in $candidates) {
+        if ($cand -and (Test-Path $cand)) { return $cand }
+    }
+    return $null
+}
+
+function Get-NpmExecutable {
+    $pnpm = Get-Command pnpm.cmd -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($pnpm) { return $pnpm.Source }
+    $npm = Get-Command npm.cmd -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($npm) { return $npm.Source }
+    throw "Neither pnpm nor npm was found in PATH. Run .\build.ps1 first."
+}
+
+function Find-BackendReleaseExe {
+    $candidates = Get-ChildItem (Join-Path $backendDir "target\release\*.exe") -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notmatch '^build-script-' }
+    if ($candidates) { return ($candidates | Select-Object -First 1).FullName }
+    return $null
+}
+
+function Ensure-BuildArtifacts {
+    $frontendDist = Join-Path $frontendDir "dist\index.html"
+    $backendExe = Find-BackendReleaseExe
+
+    if ((-not (Test-Path $frontendDist)) -or (-not $backendExe)) {
+        Write-Host "Production artifacts are missing. Running .\build.ps1 first..." -ForegroundColor Yellow
+        & $buildScript
+        if ($LASTEXITCODE -ne 0) {
+            throw "Build script failed. Cannot start application."
+        }
+    }
+}
+
+function Find-VictoriaLogsExe {
+    $localExe = Join-Path $env:LOCALAPPDATA "VictoriaLogs\bin\victoria-logs-prod.exe"
+    if (Test-Path $localExe) { return $localExe }
+    $repoExe = Join-Path $root ".victoria-logs\bin\victoria-logs-prod.exe"
+    if (Test-Path $repoExe) { return $repoExe }
+    $cmd = Get-Command victoria-logs-prod.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($cmd) { return $cmd.Source }
+    return $null
+}
+
+function Test-VictoriaLogsHealthy {
+    param([int]$Port)
+    try {
+        $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$Port/health" -UseBasicParsing -TimeoutSec 1 -ErrorAction SilentlyContinue
+        return ($null -ne $resp -and $resp.StatusCode -eq 200)
+    } catch {
+        return $false
+    }
+}
+
+function Save-PidFile {
+    param(
+        [int]$LoggerPid,
+        [bool]$LoggerOwned,
+        [int]$LogPort,
+        [int]$ShipperPid,
+        [int]$BackendPid,
+        [int]$FrontendPid,
+        [int]$BackPort,
+        [int]$FrontPort,
+        [string]$StopSentinel,
+        [string]$FlushDoneFile
+    )
+    $payload = [ordered]@{
+        logger_pid      = $LoggerPid
+        logger_owned    = $LoggerOwned
+        logger_port     = $LogPort
+        shipper_pid     = $ShipperPid
+        backend_pid     = $BackendPid
+        frontend_pid    = $FrontendPid
+        backend_port    = $BackPort
+        frontend_port   = $FrontPort
+        logs_dir        = $logsDir
+        stop_sentinel   = $StopSentinel
+        flush_done_file = $FlushDoneFile
+        started_at      = (Get-Date).ToString("o")
+        workspace       = $root
+    }
+    $json = $payload | ConvertTo-Json -Depth 4
+    [System.IO.File]::WriteAllText($pidFile, $json, $utf8NoBom)
+    Write-Host "  [PID State] Saved .pids (Logger: $LoggerPid, Shipper: $ShipperPid, Backend: $BackendPid, Frontend: $FrontendPid)" -ForegroundColor DarkGray
+}
+
+function Test-ProcessRunning {
+    param([int]$ProcessId)
+    if (-not $ProcessId) { return $false }
+    $existing = Get-Process -Id $ProcessId -ErrorAction SilentlyContinue
+    return $null -ne $existing
+}
+
+function Drain-LiveConsoleLogs {
+    param([array]$TailStates)
+    foreach ($st in $TailStates) {
+        if (-not (Test-Path $st.Path)) { continue }
+        try {
+            $fs = [System.IO.File]::Open(
+                $st.Path,
+                [System.IO.FileMode]::Open,
+                [System.IO.FileAccess]::Read,
+                [System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete
+            )
+            try {
+                if ($fs.Length -lt $st.Offset) {
+                    $st.Offset = 0
+                    $st.Carry = ""
+                }
+                if ($fs.Length -gt $st.Offset) {
+                    $fs.Seek($st.Offset, [System.IO.SeekOrigin]::Begin) | Out-Null
+                    $remaining = [int][Math]::Min(($fs.Length - $st.Offset), 262144)
+                    $buf = New-Object byte[] $remaining
+                    $read = $fs.Read($buf, 0, $remaining)
+                    $st.Offset += $read
+                    if ($read -gt 0) {
+                        $chunk = $st.Carry + $utf8NoBom.GetString($buf, 0, $read)
+                        $parts = $chunk.Split("`n")
+                        for ($i = 0; $i -lt ($parts.Length - 1); $i++) {
+                            $line = $parts[$i].TrimEnd("`r")
+                            if ($line) {
+                                Write-Host "[$($st.Prefix)] $line" -ForegroundColor $st.Color
+                            }
+                        }
+                        $st.Carry = $parts[$parts.Length - 1]
+                    }
+                }
+            } finally {
+                $fs.Dispose()
+            }
+        } catch {}
+    }
+}
+
+# 1. Stop any previously running instance via stop.ps1
+if (Test-Path $stopScript) {
+    & $stopScript -Quiet
+}
+
+# 2. Verify production artifacts exist
+Ensure-BuildArtifacts
+
+$npmExecutable = Get-NpmExecutable
+$backendExe = Find-BackendReleaseExe
+
+if (-not (Test-Path $logsDir)) {
+    New-Item -ItemType Directory -Path $logsDir -Force | Out-Null
+}
+
+$backendOutLog  = Join-Path $logsDir "backend.out.log"
+$backendErrLog  = Join-Path $logsDir "backend.err.log"
+$frontendOutLog = Join-Path $logsDir "frontend.out.log"
+$frontendErrLog = Join-Path $logsDir "frontend.err.log"
+$stopSentinel   = Join-Path $logsDir ".stop-shipper"
+$flushDoneFile  = Join-Path $logsDir ".shipper-flushed"
+$shipperCfgPath = Join-Path $logsDir "shipper.config.json"
+
+foreach ($stale in @($stopSentinel, $flushDoneFile)) {
+    if (Test-Path $stale) { Remove-Item -Path $stale -Force -ErrorAction SilentlyContinue }
+}
+foreach ($logFile in @($backendOutLog, $backendErrLog, $frontendOutLog, $frontendErrLog)) {
+    [System.IO.File]::WriteAllText($logFile, "", $utf8NoBom)
+}
+
+# 3. Start VictoriaLogs FIRST
+$loggerPid = 0
+$loggerOwned = $false
+$shipperPid = 0
+
+if (-not $SkipLogger) {
+    $vlExe = Find-VictoriaLogsExe
+    if (-not $vlExe) {
+        $installPs1 = Find-TechstackHelper -RelativePath "observability\install.ps1"
+        if ($installPs1) {
+            Write-Host "[Observability] VictoriaLogs not found locally. Installing via $installPs1..." -ForegroundColor Yellow
+            & $installPs1
+            $vlExe = Find-VictoriaLogsExe
+        }
+    }
+
+    if (-not $vlExe) {
+        throw "VictoriaLogs executable not found. Run observability\install.ps1 or pass -SkipLogger."
+    }
+
+    if (Test-VictoriaLogsHealthy -Port $LoggerPort) {
+        $existingConn = Get-NetTCPConnection -State Listen -LocalPort $LoggerPort -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($existingConn) { $loggerPid = [int]$existingConn.OwningProcess }
+        Write-Host "[Observability] VictoriaLogs already healthy on 127.0.0.1:$LoggerPort (PID: $loggerPid)." -ForegroundColor DarkGray
+    } else {
+        $vlDataDir = Join-Path $env:LOCALAPPDATA "VictoriaLogs\data"
+        if (-not (Test-Path $vlDataDir)) {
+            New-Item -ItemType Directory -Path $vlDataDir -Force | Out-Null
+        }
+        $vlOutLog = Join-Path $logsDir "victoria-logs.out.log"
+        $vlErrLog = Join-Path $logsDir "victoria-logs.err.log"
+
+        Write-Host "[1/3] Starting VictoriaLogs first on 127.0.0.1:$LoggerPort..." -ForegroundColor Cyan
+        $vlArgs = @(
+            "-storageDataPath=`"$vlDataDir`"",
+            "-retentionPeriod=30d",
+            "-httpListenAddr=127.0.0.1:$LoggerPort",
+            "-loggerFormat=json"
+        )
+        $vlProc = Start-Process `
+            -FilePath $vlExe `
+            -ArgumentList $vlArgs `
+            -WorkingDirectory $root `
+            -RedirectStandardOutput $vlOutLog `
+            -RedirectStandardError $vlErrLog `
+            -WindowStyle Hidden `
+            -PassThru
+
+        $loggerPid = $vlProc.Id
+        $loggerOwned = $true
+
+        $healthy = $false
+        for ($i = 0; $i -lt 50; $i++) {
+            Start-Sleep -Milliseconds 100
+            if (Test-VictoriaLogsHealthy -Port $LoggerPort) {
+                $healthy = $true
+                break
+            }
+            if (-not (Test-ProcessRunning -ProcessId $loggerPid)) { break }
+        }
+        if (-not $healthy) {
+            throw "VictoriaLogs (PID $loggerPid) failed to become healthy on http://127.0.0.1:$LoggerPort/health."
+        }
+        Write-Host "  OK: VictoriaLogs ready (PID $loggerPid) -> http://127.0.0.1:$LoggerPort/select/vmui/" -ForegroundColor Green
+    }
+
+    # 4. Start Log Shipper BEFORE launching apps
+    $shipperScript = Find-TechstackHelper -RelativePath "observability\ship-logs.ps1"
+    if ($shipperScript) {
+        $shipperCfg = [ordered]@{
+            app             = $appName
+            stop_sentinel   = $stopSentinel
+            flush_done_file = $flushDoneFile
+            sources         = @(
+                @{ service = "backend";  stream = "stdout"; path = $backendOutLog },
+                @{ service = "backend";  stream = "stderr"; path = $backendErrLog },
+                @{ service = "frontend"; stream = "stdout"; path = $frontendOutLog },
+                @{ service = "frontend"; stream = "stderr"; path = $frontendErrLog }
+            )
+        }
+        [System.IO.File]::WriteAllText($shipperCfgPath, ($shipperCfg | ConvertTo-Json -Depth 5), $utf8NoBom)
+
+        Write-Host "[2/3] Starting Windows Log Shipper -> http://127.0.0.1:$LoggerPort/insert/jsonline..." -ForegroundColor Cyan
+        $shipProc = Start-Process `
+            -FilePath "powershell.exe" `
+            -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-File", "`"$shipperScript`"", "-ConfigPath", "`"$shipperCfgPath`"", "-IngestUrl", "`"http://127.0.0.1:$LoggerPort/insert/jsonline?_stream_fields=app,service,host&_msg_field=message&_time_field=timestamp`"") `
+            -WorkingDirectory $root `
+            -WindowStyle Hidden `
+            -PassThru
+        $shipperPid = $shipProc.Id
+    }
+}
+
+Write-Host "[3/3] Starting Application in 100% Optimized Production Mode..." -ForegroundColor Green
+
+$env:RUST_LOG = if ($env:RUST_LOG) { $env:RUST_LOG } else { "info" }
+$env:LOG_FORMAT = "json"
+$env:RUST_BACKTRACE = "1"
+$env:APP__SERVER__PORT = "$BackendPort"
+
+$backProc = Start-Process `
+    -FilePath $backendExe `
+    -WorkingDirectory $backendDir `
+    -RedirectStandardOutput $backendOutLog `
+    -RedirectStandardError $backendErrLog `
+    -WindowStyle Hidden `
+    -PassThru
+
+$frontProc = Start-Process `
+    -FilePath $npmExecutable `
+    -ArgumentList "run preview -- --port $FrontendPort --host" `
+    -WorkingDirectory $frontendDir `
+    -RedirectStandardOutput $frontendOutLog `
+    -RedirectStandardError $frontendErrLog `
+    -WindowStyle Hidden `
+    -PassThru
+
+Save-PidFile `
+    -LoggerPid $loggerPid `
+    -LoggerOwned $loggerOwned `
+    -LogPort $LoggerPort `
+    -ShipperPid $shipperPid `
+    -BackendPid $backProc.Id `
+    -FrontendPid $frontProc.Id `
+    -BackPort $BackendPort `
+    -FrontPort $FrontendPort `
+    -StopSentinel $stopSentinel `
+    -FlushDoneFile $flushDoneFile
+
+# Fast 100ms readiness probing
+for ($i = 0; $i -lt 50; $i++) {
+    Start-Sleep -Milliseconds 100
+    try {
+        $backCheck = Invoke-WebRequest -Uri "http://127.0.0.1:$BackendPort/api/health" -UseBasicParsing -TimeoutSec 1 -ErrorAction SilentlyContinue
+        $frontCheck = Invoke-WebRequest -Uri "http://127.0.0.1:$FrontendPort" -UseBasicParsing -TimeoutSec 1 -ErrorAction SilentlyContinue
+        if ($backCheck -and $backCheck.StatusCode -eq 200 -and $frontCheck -and $frontCheck.StatusCode -eq 200) { break }
+    } catch {}
+}
+
+$launchUrl = "http://localhost:$FrontendPort"
+Write-Host ""
+Write-Host "Application is ready!" -ForegroundColor Green
+Write-Host "  App UI  : $launchUrl" -ForegroundColor Cyan
+Write-Host "  API     : http://127.0.0.1:$BackendPort/api/health" -ForegroundColor Cyan
+if (-not $SkipLogger) {
+    Write-Host "  Logs UI : http://127.0.0.1:$LoggerPort/select/vmui/" -ForegroundColor Cyan
+}
+$tsIp = (Get-NetIPAddress -InterfaceAlias "*Tailscale*" -AddressFamily IPv4 -ErrorAction SilentlyContinue | Select-Object -ExpandProperty IPAddress -First 1)
+if ($tsIp) {
+    Write-Host "  Tailscale: $($launchUrl -replace 'localhost', $tsIp)" -ForegroundColor Cyan
+}
+Write-Host "  PIDs    : Logger=$loggerPid | Shipper=$shipperPid | Backend=$($backProc.Id) | Frontend=$($frontProc.Id)" -ForegroundColor DarkGray
+Write-Host ""
+
+if ($Background) {
+    Write-Host "Running in background. Run .\stop.ps1 to stop apps cleanly and shut down VictoriaLogs last." -ForegroundColor Yellow
+    exit 0
+}
+
+Write-Host "Press Ctrl+C (or run .\stop.ps1 in another terminal) to stop all services." -ForegroundColor Yellow
+
+$tailStates = @(
+    [PSCustomObject]@{ Prefix = "Backend";  Color = "Cyan";    Path = $backendOutLog;  Offset = [long]0; Carry = "" },
+    [PSCustomObject]@{ Prefix = "Backend";  Color = "Red";     Path = $backendErrLog;  Offset = [long]0; Carry = "" },
+    [PSCustomObject]@{ Prefix = "Frontend"; Color = "Magenta"; Path = $frontendOutLog; Offset = [long]0; Carry = "" },
+    [PSCustomObject]@{ Prefix = "Frontend"; Color = "Red";     Path = $frontendErrLog; Offset = [long]0; Carry = "" }
+)
+
+$script:shutdownRequested = $false
+try {
+    trap [System.Management.Automation.PipelineStoppedException] {
+        $script:shutdownRequested = $true
+        Write-Host "`nCtrl+C detected. Stopping apps cleanly before shutting down logger..." -ForegroundColor Yellow
+        continue
+    }
+
+    while (-not $script:shutdownRequested) {
+        Drain-LiveConsoleLogs -TailStates $tailStates
+
+        if (-not (Test-ProcessRunning -ProcessId $backProc.Id)) {
+            Drain-LiveConsoleLogs -TailStates $tailStates
+            Write-Host "Backend process (PID $($backProc.Id)) terminated." -ForegroundColor Red
+            break
+        }
+        if (-not (Test-ProcessRunning -ProcessId $frontProc.Id)) {
+            Drain-LiveConsoleLogs -TailStates $tailStates
+            Write-Host "Frontend process (PID $($frontProc.Id)) terminated." -ForegroundColor Red
+            break
+        }
+        Start-Sleep -Milliseconds 150
+    }
+} finally {
+    if (Test-Path $stopScript) {
+        & $stopScript
+    }
+}
