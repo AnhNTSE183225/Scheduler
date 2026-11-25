@@ -5,7 +5,7 @@ use crate::models::state::StateMachineDTO;
 use crate::repositories::calendar_repo::CalendarRepository;
 use crate::repositories::event_repo::EventRepository;
 use crate::repositories::push_repo::PushRepository;
-use crate::routes::optional_session;
+use crate::routes::require_session;
 use crate::services::push_service::validate_push_endpoint;
 use crate::state::AppState;
 use axum::{
@@ -19,17 +19,12 @@ use std::collections::HashSet;
 use std::net::SocketAddr;
 use validator::Validate;
 
-fn is_valid_guest_id(raw: &str) -> bool {
-    let Some(hex) = raw.strip_prefix("guest:") else {
-        return false;
-    };
-    hex.len() == 32 && hex.chars().all(|c| c.is_ascii_hexdigit())
-}
-
 pub async fn get_public_event(
     Path(share_token): Path<String>,
+    headers: HeaderMap,
     State(state): State<AppState>,
 ) -> Result<impl IntoResponse, AppError> {
+    let _session = require_session(&headers, &state).await?;
     let event = state
         .event_repo
         .get_event_by_share_token(&share_token)
@@ -107,34 +102,16 @@ pub async fn respond_public_event(
     };
 
     let scope = payload.scope.as_deref().unwrap_or("occurrence");
-    let session = optional_session(&headers, &state).await;
-
-    let (responder_id, guest_name, responder_name) = if let Some(sess) = session {
-        let dname = sess.user.display_name.clone();
-        (sess.user.id, None, dname)
-    } else {
-        payload
-            .validate()
-            .map_err(|e| AppError::BadRequest(format!("Please enter your name: {e}")))?;
-        let trimmed_name = payload.name.trim();
-        if trimmed_name.is_empty() {
-            return Err(AppError::BadRequest("Please enter your name".to_string()));
-        }
-        let gid = payload
-            .guest_id
-            .as_deref()
-            .filter(|id| is_valid_guest_id(id))
-            .map(ToString::to_string)
-            .unwrap_or_else(|| format!("guest:{}", uuid::Uuid::new_v4().simple()));
-        (gid, Some(trimmed_name.to_string()), trimmed_name.to_string())
-    };
+    let session = require_session(&headers, &state).await?;
+    let responder_id = session.user.id.clone();
+    let responder_name = session.user.display_name.clone();
 
     let updated = state
         .event_repo
         .respond_event(
             &event.id,
             &responder_id,
-            guest_name.as_deref(),
+            None,
             &payload.key,
             status,
             scope,
@@ -183,10 +160,8 @@ pub async fn subscribe_public_event_push(
         .await?
         .ok_or_else(|| AppError::NotFound("Event invite link not found".to_string()))?;
 
-    let session = optional_session(&headers, &state).await;
-    let user_id = session
-        .map(|s| s.user.id)
-        .unwrap_or_else(|| format!("guest-push:{}", uuid::Uuid::new_v4().simple()));
+    let session = require_session(&headers, &state).await?;
+    let user_id = session.user.id;
 
     let sub = state
         .push_repo

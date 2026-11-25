@@ -3,6 +3,7 @@ import { CalendarDays, Loader2, LogOut } from 'lucide-solid';
 import { getStoredToken } from '@/api/client';
 import { AvatarBadge } from '@/components/schedule/AvatarBadge';
 import { ProfileModal } from '@/components/schedule/ProfileModal';
+import { SetupGate } from '@/components/schedule/SetupGate';
 import { LoginPage } from '@/pages/LoginPage';
 import { PublicEventPage } from '@/pages/PublicEventPage';
 import { SchedulePage } from '@/pages/SchedulePage';
@@ -86,19 +87,36 @@ export function App() {
       </header>
 
       <Show
-        when={!publicShareToken()}
-        fallback={<PublicEventPage shareToken={publicShareToken()!} onBackHome={goHome} />}
+        when={authStore.status() !== 'loading' || Boolean(authStore.user()) || !getStoredToken()}
+        fallback={
+          <div class="flex-1 flex items-center justify-center p-8 text-sm text-muted-foreground gap-2">
+            <Loader2 size={18} class="animate-spin text-primary" /> Loading PulsePlan...
+          </div>
+        }
       >
-        <Show
-          when={authStore.status() !== 'loading' || Boolean(authStore.user()) || !getStoredToken()}
-          fallback={
-            <div class="flex-1 flex items-center justify-center p-8 text-sm text-muted-foreground gap-2">
-              <Loader2 size={18} class="animate-spin text-primary" /> Loading PulsePlan...
-            </div>
-          }
-        >
-          <Show when={authStore.user()} fallback={<LoginPage />}>
-            <SchedulePage />
+        <Show when={authStore.user()} fallback={<LoginPage />}>
+          <Show
+            when={notificationStore.initialized()}
+            fallback={
+              <div class="flex-1 flex items-center justify-center p-8 text-sm text-muted-foreground gap-2">
+                <Loader2 size={18} class="animate-spin text-primary" /> Checking app &amp; notification status...
+              </div>
+            }
+          >
+            <Show
+              when={
+                notificationStore.installMode() === 'standalone' &&
+                notificationStore.status() === 'active'
+              }
+              fallback={<SetupGate />}
+            >
+              <Show
+                when={!publicShareToken()}
+                fallback={<PublicEventPage shareToken={publicShareToken()!} onBackHome={goHome} />}
+              >
+                <SchedulePage />
+              </Show>
+            </Show>
           </Show>
         </Show>
       </Show>

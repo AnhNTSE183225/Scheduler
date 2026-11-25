@@ -111,7 +111,11 @@ impl AuthRepository for SqliteAuthRepository {
         ttl_hours: i64,
     ) -> Result<UserSession, AppError> {
         let now = now_sec();
-        let expires_at = now + (ttl_hours as f64) * 3600.0;
+        let expires_at = if ttl_hours <= 0 {
+            0.0
+        } else {
+            now + (ttl_hours as f64) * 3600.0
+        };
         let user_json =
             serde_json::to_string(user).map_err(|e| AppError::Internal(e.to_string()))?;
 
@@ -153,7 +157,7 @@ impl AuthRepository for SqliteAuthRepository {
         let expires_at: f64 = row.get("expires_at");
         let last_active: f64 = row.get("last_active");
         let now = now_sec();
-        if now > expires_at {
+        if expires_at > 0.0 && now > expires_at {
             let _ = self.delete_session(session_id).await;
             return Ok(None);
         }

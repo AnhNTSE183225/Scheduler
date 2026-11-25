@@ -49,13 +49,6 @@ export function PublicEventPage(props: { shareToken: string; onBackHome: () => v
       if (u) {
         setGuestName(u.displayName);
         setMyResponderId(u.id);
-      } else {
-        const storedGuestId = localStorage.getItem(guestStorageKey());
-        if (storedGuestId) {
-          setMyResponderId(storedGuestId);
-          const storedName = res.data.event.guestNames?.[storedGuestId];
-          if (storedName) setGuestName(storedName);
-        }
       }
       setStatus('active');
     } catch (err: unknown) {

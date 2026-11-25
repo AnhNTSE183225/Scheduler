@@ -24,6 +24,7 @@ const [installMode, setInstallMode] = createSignal<PlatformInstallMode>(detectIn
 const [deferredPrompt, setDeferredPrompt] = createSignal<BeforeInstallPromptEvent | null>(null);
 const [errorMsg, setErrorMsg] = createSignal<string | null>(null);
 const [feedbackMsg, setFeedbackMsg] = createSignal<string | null>(null);
+const [initialized, setInitialized] = createSignal(false);
 
 if (typeof window !== 'undefined') {
   window.addEventListener('beforeinstallprompt', (e) => {
@@ -57,6 +58,7 @@ export const notificationStore = {
   status,
   permission,
   installMode,
+  initialized,
   canInstallPrompt: () => deferredPrompt() !== null,
   errorMsg,
   feedbackMsg,
@@ -66,6 +68,7 @@ export const notificationStore = {
 
     if (typeof Notification === 'undefined' || !('PushManager' in window)) {
       transitionTo('paused', 'Push API unavailable in current browser context');
+      setInitialized(true);
       return;
     }
 
@@ -89,6 +92,8 @@ export const notificationStore = {
       }
     } catch {
       transitionTo('idle', 'Ready for user opt-in');
+    } finally {
+      setInitialized(true);
     }
   },
 
