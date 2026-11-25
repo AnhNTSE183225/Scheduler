@@ -1,4 +1,4 @@
-import { For, Show, createMemo } from 'solid-js';
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
 import { addDays, format, isSameDay, isToday, startOfDay } from 'date-fns';
 import { CalendarDays, Link2, MapPin, Repeat2 } from 'lucide-solid';
 import { getCategoryMeta } from '@/components/pickers/CategoryMeta';
@@ -37,6 +37,15 @@ export function AgendaView(props: {
   membersByCalendar: Record<string, ServerMember[]>;
   onOpen: (o: Occurrence) => void;
 }) {
+  let listRef: HTMLDivElement | undefined;
+  let didAutoScroll = false;
+  const [now, setNow] = createSignal(new Date());
+
+  onMount(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000);
+    onCleanup(() => window.clearInterval(timer));
+  });
+
   const groups = createMemo(() => {
     const groupsMap = new Map<string, { day: Date; items: Occurrence[] }>();
     for (const o of props.occurrences) {
@@ -56,6 +65,33 @@ export function AgendaView(props: {
     return Array.from(groupsMap.values()).sort((a, b) => a.day.getTime() - b.day.getTime());
   });
 
+  const nextUpcomingTarget = createMemo(() => {
+    const nowMs = now().getTime();
+    let sawPast = false;
+    for (const g of groups()) {
+      for (const o of g.items) {
+        if (o.end.getTime() <= nowMs) {
+          sawPast = true;
+        } else {
+          return sawPast ? `${format(g.day, 'yyyy-MM-dd')}::${o.key}` : null;
+        }
+      }
+    }
+    return null;
+  });
+
+  createEffect(() => {
+    const target = nextUpcomingTarget();
+    if (!target || didAutoScroll) return;
+    didAutoScroll = true;
+    requestAnimationFrame(() => {
+      const el = listRef?.querySelector('[data-next-upcoming="true"]');
+      if (el instanceof HTMLElement) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
+  });
+
   return (
     <Show
       when={groups().length > 0}
@@ -66,7 +102,7 @@ export function AgendaView(props: {
         </div>
       }
     >
-      <div class="agenda-list">
+      <div class="agenda-list" ref={listRef}>
         <For each={groups()}>
           {(g) => (
             <div class="agenda-day">
@@ -86,18 +122,24 @@ export function AgendaView(props: {
                     const isEndDay = () => isSameDay(o.end, g.day);
                     const CatIcon = getCategoryMeta(o.event.category, o.event.title, o.event.description).icon;
                     const invited = () => isInvited(o.event, props.userId, calMembers());
+                    const isPast = () => o.end.getTime() <= now().getTime();
+                    const isNextUpcoming = () =>
+                      nextUpcomingTarget() === `${format(g.day, 'yyyy-MM-dd')}::${o.key}`;
 
                     return (
                       <button
                         type="button"
-                        class="agenda-item"
+                        data-next-upcoming={isNextUpcoming() ? 'true' : undefined}
+                        class={`agenda-item ${isPast() ? 'opacity-50 hover:opacity-80' : ''}`}
                         style={{ 'border-left': `3px solid ${calTheme().accent}` }}
                         onClick={() => props.onOpen(o)}
                       >
                         <span class="agenda-time font-mono">
-                          {isStartDay() ? format(o.start, 'HH:mm') : '00:00'}
+                          <span>{isStartDay() ? format(o.start, 'HH:mm') : '00:00'}</span>
                           <br />
-                          <span class="text-muted-foreground">{isEndDay() ? format(o.end, 'HH:mm') : '24:00'}</span>
+                          <span class="text-[11px] font-medium text-muted-foreground">
+                            {isEndDay() ? format(o.end, 'HH:mm') : '24:00'}
+                          </span>
                         </span>
 
                         <span class="flex-1 min-w-0 flex flex-col gap-1">
@@ -143,13 +185,18 @@ export function AgendaView(props: {
                           </span>
                         </span>
 
-                        <span class={`rsvp-pill ${status() ? `is-${status()}` : 'is-pending'}`}>
-                          {invited()
-                            ? status()
-                              ? status()![0].toUpperCase() + status()!.slice(1)
-                              : 'Respond'
-                            : 'Open'}
-                        </span>
+                        <Show
+                          when={!isPast()}
+                          fallback={<span class="rsvp-pill opacity-80">Ended</span>}
+                        >
+                          <span class={`rsvp-pill ${status() ? `is-${status()}` : 'is-pending'}`}>
+                            {invited()
+                              ? status()
+                                ? status()![0].toUpperCase() + status()!.slice(1)
+                                : 'Respond'
+                              : 'Open'}
+                          </span>
+                        </Show>
                       </button>
                     );
                   }}

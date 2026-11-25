@@ -43,3 +43,20 @@ pub struct LoginRequest {
     #[validate(length(min = 1, max = 128))]
     pub password: String,
 }
+
+#[derive(Debug, Clone, Deserialize, Validate)]
+pub struct UpdateProfileRequest {
+    #[serde(rename = "displayName")]
+    #[validate(length(min = 1, max = 80))]
+    pub display_name: String,
+}
+
+#[derive(Debug, Clone, Deserialize, Validate)]
+pub struct ChangePasswordRequest {
+    #[serde(rename = "currentPassword")]
+    #[validate(length(min = 1, max = 128))]
+    pub current_password: String,
+    #[serde(rename = "newPassword")]
+    #[validate(length(min = 8, max = 128))]
+    pub new_password: String,
+}

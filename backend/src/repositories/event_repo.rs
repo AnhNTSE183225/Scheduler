@@ -18,6 +18,7 @@ const MAX_INVITEES: usize = 200;
 const MAX_CANCELLED_OCCURRENCES: usize = 365;
 const MAX_RESPONDERS: usize = 500;
 const MAX_OCCURRENCE_KEYS: usize = 365;
+const MAX_DURATION_MINUTES: i64 = 365 * 1440;
 
 pub fn validate_http_url(raw: &str, field: &str) -> Result<String, AppError> {
     let trimmed = raw.trim();
@@ -370,7 +371,7 @@ impl EventRepository for SqliteEventRepository {
             .get("durationMinutes")
             .and_then(|v| v.as_i64())
             .unwrap_or(60)
-            .clamp(15, 1440) as i32;
+            .clamp(15, MAX_DURATION_MINUTES) as i32;
 
         let rec_json = match payload.get("recurrence") {
             Some(v) => sanitize_recurrence(v)?,
@@ -506,7 +507,7 @@ impl EventRepository for SqliteEventRepository {
         let duration_minutes = payload
             .get("durationMinutes")
             .and_then(|v| v.as_i64())
-            .map(|n| n.clamp(15, 1440) as i32)
+            .map(|n| n.clamp(15, MAX_DURATION_MINUTES) as i32)
             .unwrap_or(existing.duration_minutes);
 
         let recurrence_json = match payload.get("recurrence") {

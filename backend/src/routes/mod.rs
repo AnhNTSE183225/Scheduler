@@ -21,7 +21,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/api/auth/register", post(auth::register))
         .route("/api/auth/login", post(auth::login))
         .route("/api/auth/logout", post(auth::logout))
-        .route("/api/me", get(auth::get_me))
+        .route("/api/auth/change-password", post(auth::change_password))
+        .route("/api/me", get(auth::get_me).put(auth::update_profile))
         // Calendars / Groups
         .route("/api/calendars", get(calendars::list_calendars).post(calendars::create_calendar))
         .route("/api/calendars/join", post(calendars::join_calendar))

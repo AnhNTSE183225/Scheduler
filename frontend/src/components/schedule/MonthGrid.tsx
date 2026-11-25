@@ -70,7 +70,7 @@ export function MonthGrid(props: {
                       >
                         <span class={`rsvp-dot ${dotCls()}`} aria-hidden="true" />
                         <CatIcon size={11} class="shrink-0 text-primary/80" />
-                        <span class="shrink-0 text-muted-foreground font-mono text-[10px] hidden sm:inline">{timeText()}</span>
+                        <span class="shrink-0 text-foreground/90 font-mono font-semibold text-[11px] hidden sm:inline">{timeText()}</span>
                         <span class="truncate">{o.event.title}</span>
                       </button>
                     );

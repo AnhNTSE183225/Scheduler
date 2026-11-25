@@ -44,3 +44,20 @@ export function postLogout(): Promise<StateMachineDTO<{ ok: boolean }>> {
     method: 'POST',
   });
 }
+
+export function updateProfile(displayName: string): Promise<StateMachineDTO<{ user: User }>> {
+  return apiFetch<StateMachineDTO<{ user: User }>>('/me', {
+    method: 'PUT',
+    body: JSON.stringify({ displayName }),
+  });
+}
+
+export function changePassword(
+  currentPassword: string,
+  newPassword: string,
+): Promise<StateMachineDTO<{ ok: boolean }>> {
+  return apiFetch<StateMachineDTO<{ ok: boolean }>>('/auth/change-password', {
+    method: 'POST',
+    body: JSON.stringify({ currentPassword, newPassword }),
+  });
+}

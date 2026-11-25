@@ -178,6 +178,63 @@ impl<AR: AuthRepository, CR: CalendarRepository> AuthService<AR, CR> {
         self.auth_repo.delete_session(token).await
     }
 
+    pub async fn update_display_name(
+        &self,
+        user_id: &str,
+        display_name: &str,
+    ) -> Result<User, AppError> {
+        let clean_name = display_name.trim();
+        let name_chars = clean_name.chars().count();
+        if name_chars == 0 || name_chars > 80 {
+            return Err(AppError::BadRequest(
+                "Display name must be between 1 and 80 characters".to_string(),
+            ));
+        }
+        let user = self
+            .auth_repo
+            .update_display_name(user_id, clean_name)
+            .await?;
+        info!(user_id = %user.id, "User display name updated");
+        Ok(user)
+    }
+
+    pub async fn change_password(
+        &self,
+        user_id: &str,
+        current_password: &str,
+        new_password: &str,
+    ) -> Result<(), AppError> {
+        let stored = self
+            .auth_repo
+            .find_by_id(user_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+
+        let valid = Self::verify_password(current_password.to_string(), stored.password_hash).await?;
+        if !valid {
+            return Err(AppError::Unauthorized(
+                "Current password is incorrect".to_string(),
+            ));
+        }
+
+        let new_chars = new_password.chars().count();
+        if !(8..=128).contains(&new_chars) {
+            return Err(AppError::BadRequest(
+                "New password must be between 8 and 128 characters".to_string(),
+            ));
+        }
+        if current_password == new_password {
+            return Err(AppError::BadRequest(
+                "New password must be different from your current password".to_string(),
+            ));
+        }
+
+        let new_hash = Self::hash_password(new_password.to_string()).await?;
+        self.auth_repo.update_password_hash(user_id, &new_hash).await?;
+        info!(user_id = %user_id, "User password changed");
+        Ok(())
+    }
+
     pub fn is_admin(&self, user: &User) -> bool {
         let admin_username = self.config.auth.admin_username.trim();
         !admin_username.is_empty() && user.username.eq_ignore_ascii_case(admin_username)

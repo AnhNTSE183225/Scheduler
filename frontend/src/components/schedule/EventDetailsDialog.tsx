@@ -1,7 +1,8 @@
-import { For, Show, createMemo, createSignal } from 'solid-js';
-import { format, parseISO } from 'date-fns';
+import { For, Show, createEffect, createMemo, createSignal, onCleanup, onMount } from 'solid-js';
+import { format, isSameDay, parseISO } from 'date-fns';
 import {
   Check,
+  ChevronDown,
   Clock,
   Copy,
   ExternalLink,
@@ -43,6 +44,21 @@ export function EventDetailsDialog(props: {
   const [confirmDelete, setConfirmDelete] = createSignal(false);
   const [busy, setBusy] = createSignal(false);
   const [copiedLink, setCopiedLink] = createSignal(false);
+  const [rsvpMenuOpen, setRsvpMenuOpen] = createSignal(false);
+  let rsvpMenuRef: HTMLDivElement | undefined;
+
+  onMount(() => {
+    const onDocClick = (e: MouseEvent) => {
+      if (rsvpMenuRef && !rsvpMenuRef.contains(e.target as Node)) setRsvpMenuOpen(false);
+    };
+    document.addEventListener('mousedown', onDocClick);
+    onCleanup(() => document.removeEventListener('mousedown', onDocClick));
+  });
+
+  createEffect(() => {
+    void props.occ?.key;
+    setRsvpMenuOpen(false);
+  });
 
   const ev = () => props.occ?.event;
   const isOwner = () => (ev() ? canManageEvent(ev()!, props.userId, props.isAdmin) : false);
@@ -117,9 +133,11 @@ export function EventDetailsDialog(props: {
                     </span>
                   </div>
                   <div class="flex flex-col gap-1 text-xs text-muted-foreground mt-1.5">
-                    <span class="flex items-center gap-1.5 font-medium text-foreground/90">
-                      <Clock size={13} class="text-primary shrink-0" />
-                      {format(occ().start, 'EEEE, MMM d, yyyy')} · {format(occ().start, 'HH:mm')}–{format(occ().end, 'HH:mm')}
+                    <span class="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+                      <Clock size={14} class="text-primary shrink-0" />
+                      {isSameDay(occ().start, occ().end)
+                        ? `${format(occ().start, 'EEEE, MMM d, yyyy')} · ${format(occ().start, 'HH:mm')}–${format(occ().end, 'HH:mm')}`
+                        : `${format(occ().start, 'EEE, MMM d, HH:mm')} → ${format(occ().end, 'EEE, MMM d, yyyy, HH:mm')}`}
                     </span>
                     <Show when={event.recurrence}>
                       <span class="flex items-center gap-1.5">
@@ -211,11 +229,8 @@ export function EventDetailsDialog(props: {
                 </Show>
 
                 <div class="detail-block flex flex-col gap-3">
-                  <div class="flex items-center justify-between gap-2 flex-wrap">
-                    <span class="text-xs font-semibold">
-                      Your response{myStatus() ? `: ${myStatus()}` : ''}
-                    </span>
-                    <Show when={event.recurrence}>
+                  <Show when={event.recurrence}>
+                    <div class="flex items-center justify-end">
                       <SlidingSegmentedControl<RsvpScope>
                         value={scope()}
                         onChange={setScope}
@@ -225,34 +240,147 @@ export function EventDetailsDialog(props: {
                         ]}
                         ariaLabel="Response scope"
                       />
-                    </Show>
-                  </div>
-                  <div class="grid grid-cols-3 gap-2">
-                    <button
-                      type="button"
-                      disabled={busy()}
-                      onClick={() => void handleRespond('accepted')}
-                      class={`rsvp-btn is-accepted ${myStatus() === 'accepted' ? 'is-active' : ''}`}
-                    >
-                      <Check size={14} /> Accept
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy()}
-                      onClick={() => void handleRespond('tentative')}
-                      class={`rsvp-btn is-tentative ${myStatus() === 'tentative' ? 'is-active' : ''}`}
-                    >
-                      <HelpCircle size={14} /> Maybe
-                    </button>
-                    <button
-                      type="button"
-                      disabled={busy()}
-                      onClick={() => void handleRespond('declined')}
-                      class={`rsvp-btn is-declined ${myStatus() === 'declined' ? 'is-active' : ''}`}
-                    >
-                      <X size={14} /> Decline
-                    </button>
-                  </div>
+                    </div>
+                  </Show>
+
+                  <Show
+                    when={myStatus()}
+                    fallback={
+                      <>
+                        <span class="text-xs font-semibold text-muted-foreground">
+                          Respond to this event
+                        </span>
+                        <div class="grid grid-cols-3 gap-2">
+                          <button
+                            type="button"
+                            disabled={busy()}
+                            onClick={() => void handleRespond('accepted')}
+                            class="rsvp-btn is-accepted"
+                          >
+                            <Check size={14} /> Accept
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy()}
+                            onClick={() => void handleRespond('tentative')}
+                            class="rsvp-btn is-tentative"
+                          >
+                            <HelpCircle size={14} /> Maybe
+                          </button>
+                          <button
+                            type="button"
+                            disabled={busy()}
+                            onClick={() => void handleRespond('declined')}
+                            class="rsvp-btn is-declined"
+                          >
+                            <X size={14} /> Decline
+                          </button>
+                        </div>
+                      </>
+                    }
+                  >
+                    {(st) => (
+                      <div class="flex items-center justify-between gap-3 flex-wrap">
+                        <div class="flex items-center gap-2 text-sm font-semibold">
+                          <Show when={st() === 'accepted'}>
+                            <span class="h-6 w-6 rounded-full bg-primary/15 text-primary grid place-items-center shrink-0">
+                              <Check size={14} />
+                            </span>
+                            <span>You've accepted this event</span>
+                          </Show>
+                          <Show when={st() === 'tentative'}>
+                            <span class="h-6 w-6 rounded-full bg-amber-500/15 text-amber-400 grid place-items-center shrink-0">
+                              <HelpCircle size={14} />
+                            </span>
+                            <span>You've tentatively accepted this event</span>
+                          </Show>
+                          <Show when={st() === 'declined'}>
+                            <span class="h-6 w-6 rounded-full bg-destructive/15 text-destructive grid place-items-center shrink-0">
+                              <X size={14} />
+                            </span>
+                            <span>You've declined this event</span>
+                          </Show>
+                        </div>
+
+                        <div class="relative" ref={rsvpMenuRef}>
+                          <button
+                            type="button"
+                            disabled={busy()}
+                            onClick={() => setRsvpMenuOpen((o) => !o)}
+                            aria-haspopup="menu"
+                            aria-expanded={rsvpMenuOpen()}
+                            class="h-8 px-3 rounded-lg border border-border bg-card/70 hover:bg-accent text-xs font-medium inline-flex items-center gap-1.5"
+                          >
+                            <Pencil size={12} class="text-primary" />
+                            Change
+                            <ChevronDown
+                              size={12}
+                              class={`text-muted-foreground transition-transform ${rsvpMenuOpen() ? 'rotate-180' : ''}`}
+                            />
+                          </button>
+
+                          <Show when={rsvpMenuOpen()}>
+                            <div
+                              role="menu"
+                              class="absolute right-0 mt-1.5 z-50 w-44 rounded-xl border border-border bg-popover/95 backdrop-blur-xl shadow-2xl p-1.5 space-y-0.5"
+                            >
+                              <button
+                                type="button"
+                                role="menuitem"
+                                disabled={busy()}
+                                onClick={() => {
+                                  setRsvpMenuOpen(false);
+                                  void handleRespond('accepted');
+                                }}
+                                class="w-full px-2.5 py-2 rounded-lg text-left text-xs font-medium flex items-center justify-between hover:bg-accent/70"
+                              >
+                                <span class="inline-flex items-center gap-2 text-primary">
+                                  <Check size={13} /> Accept
+                                </span>
+                                <Show when={st() === 'accepted'}>
+                                  <Check size={12} class="text-primary" />
+                                </Show>
+                              </button>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                disabled={busy()}
+                                onClick={() => {
+                                  setRsvpMenuOpen(false);
+                                  void handleRespond('tentative');
+                                }}
+                                class="w-full px-2.5 py-2 rounded-lg text-left text-xs font-medium flex items-center justify-between hover:bg-accent/70"
+                              >
+                                <span class="inline-flex items-center gap-2 text-amber-400">
+                                  <HelpCircle size={13} /> Tentative
+                                </span>
+                                <Show when={st() === 'tentative'}>
+                                  <Check size={12} class="text-amber-400" />
+                                </Show>
+                              </button>
+                              <button
+                                type="button"
+                                role="menuitem"
+                                disabled={busy()}
+                                onClick={() => {
+                                  setRsvpMenuOpen(false);
+                                  void handleRespond('declined');
+                                }}
+                                class="w-full px-2.5 py-2 rounded-lg text-left text-xs font-medium flex items-center justify-between hover:bg-accent/70"
+                              >
+                                <span class="inline-flex items-center gap-2 text-destructive">
+                                  <X size={13} /> Decline
+                                </span>
+                                <Show when={st() === 'declined'}>
+                                  <Check size={12} class="text-destructive" />
+                                </Show>
+                              </button>
+                            </div>
+                          </Show>
+                        </div>
+                      </div>
+                    )}
+                  </Show>
                 </div>
 
                 <div class="flex flex-col gap-3">

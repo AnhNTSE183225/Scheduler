@@ -140,8 +140,8 @@ export function WeekGrid(props: {
                                 <CatIcon size={12} class="shrink-0 text-primary/80" />
                                 <span class="truncate">{o.event.title}</span>
                               </span>
-                              <div class="flex items-center justify-between gap-1 text-muted-foreground text-[10px] min-w-0">
-                                <span class="font-mono shrink-0">{timeDisplay}</span>
+                              <div class="flex items-center justify-between gap-1 text-[11px] min-w-0">
+                                <span class="font-mono font-semibold text-foreground/90 shrink-0">{timeDisplay}</span>
                                 <Show when={organizer()}>
                                   {(org) => (
                                     <span class="flex items-center gap-1 min-w-0 shrink truncate">

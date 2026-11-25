@@ -118,26 +118,105 @@ where
         }
     }
 
-    pub fn notify_event_deleted(&self, calendar_id: &str, event_id: &str) {
+    pub async fn notify_event_deleted(
+        &self,
+        event: &ScheduleEvent,
+        actor_id: &str,
+        actor_name: &str,
+        occurrence: Option<&str>,
+    ) {
+        let body = match occurrence {
+            Some(occ) => format!("{actor_name} cancelled the {occ} occurrence"),
+            None => format!("{actor_name} cancelled this event"),
+        };
+
         self.sse_svc.broadcast(SseNotificationEvent {
             kind: "event_deleted".to_string(),
-            calendar_id: calendar_id.to_string(),
-            event_id: event_id.to_string(),
-            title: None,
-            message: None,
+            calendar_id: event.calendar_id.clone(),
+            event_id: event.id.clone(),
+            title: Some(event.title.clone()),
+            message: Some(body.clone()),
             timestamp: now_sec(),
         });
+
+        let recipient_ids = self.resolve_recipient_ids(event, Some(actor_id)).await;
+        if recipient_ids.is_empty() {
+            return;
+        }
+        let subs = self.collect_subscriptions(event, &recipient_ids).await;
+        if subs.is_empty() {
+            return;
+        }
+
+        let url = if occurrence.is_some() {
+            format!("{}/e/{}", self.frontend_url, event.share_token)
+        } else {
+            self.frontend_url.clone()
+        };
+
+        let payload = PushPayload {
+            title: format!("Cancelled: {}", event.title),
+            body,
+            url,
+            tag: format!("cancel-{}", event.id),
+        };
+
+        let sent = self.push_svc.dispatch_to_subscriptions(&subs, &payload).await;
+        if sent > 0 {
+            info!(event_id = %event.id, sent, "Dispatched event cancellation Web Push");
+        }
     }
 
-    pub fn notify_rsvp_updated(&self, event: &ScheduleEvent) {
+    pub async fn notify_rsvp_updated(
+        &self,
+        event: &ScheduleEvent,
+        responder_id: &str,
+        responder_name: &str,
+        status: &str,
+    ) {
+        let verb = match status {
+            "accepted" => "accepted",
+            "tentative" => "tentatively accepted",
+            "declined" => "declined",
+            _ => "responded to",
+        };
+        let body = format!("{responder_name} {verb} your event");
+
         self.sse_svc.broadcast(SseNotificationEvent {
             kind: "rsvp_updated".to_string(),
             calendar_id: event.calendar_id.clone(),
             event_id: event.id.clone(),
             title: Some(event.title.clone()),
-            message: None,
+            message: Some(body.clone()),
             timestamp: now_sec(),
         });
+
+        if event.organizer_id.is_empty() || responder_id == event.organizer_id {
+            return;
+        }
+
+        let Ok(subs) = self
+            .push_repo
+            .list_subscriptions_for_users(&[event.organizer_id.clone()])
+            .await
+        else {
+            return;
+        };
+        if subs.is_empty() {
+            return;
+        }
+
+        let payload = PushPayload {
+            title: format!("RSVP: {}", event.title),
+            body,
+            url: format!("{}/e/{}", self.frontend_url, event.share_token),
+            tag: format!("rsvp-{}-{}", event.id, responder_id),
+        };
+
+        let sent = self.push_svc.dispatch_to_subscriptions(&subs, &payload).await;
+        if sent > 0 {
+            info!(event_id = %event.id, organizer_id = %event.organizer_id, sent, "Dispatched RSVP notification Web Push");
+        }
     }
 
     async fn check_upcoming_reminders(self: &Arc<Self>) -> Result<(), String> {

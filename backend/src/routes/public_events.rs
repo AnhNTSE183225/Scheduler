@@ -109,8 +109,9 @@ pub async fn respond_public_event(
     let scope = payload.scope.as_deref().unwrap_or("occurrence");
     let session = optional_session(&headers, &state).await;
 
-    let (responder_id, guest_name) = if let Some(sess) = session {
-        (sess.user.id, None)
+    let (responder_id, guest_name, responder_name) = if let Some(sess) = session {
+        let dname = sess.user.display_name.clone();
+        (sess.user.id, None, dname)
     } else {
         payload
             .validate()
@@ -125,7 +126,7 @@ pub async fn respond_public_event(
             .filter(|id| is_valid_guest_id(id))
             .map(ToString::to_string)
             .unwrap_or_else(|| format!("guest:{}", uuid::Uuid::new_v4().simple()));
-        (gid, Some(trimmed_name))
+        (gid, Some(trimmed_name.to_string()), trimmed_name.to_string())
     };
 
     let updated = state
@@ -133,7 +134,7 @@ pub async fn respond_public_event(
         .respond_event(
             &event.id,
             &responder_id,
-            guest_name,
+            guest_name.as_deref(),
             &payload.key,
             status,
             scope,
@@ -141,7 +142,14 @@ pub async fn respond_public_event(
         .await?
         .ok_or_else(|| AppError::NotFound("Event not found".to_string()))?;
 
-    state.reminder_svc.notify_rsvp_updated(&updated);
+    let svc = state.reminder_svc.clone();
+    let updated_clone = updated.clone();
+    let rid = responder_id.clone();
+    let status_owned = status.to_string();
+    tokio::spawn(async move {
+        svc.notify_rsvp_updated(&updated_clone, &rid, &responder_name, &status_owned)
+            .await;
+    });
     Ok(Json(StateMachineDTO::active(json!({
         "event": updated,
         "responderId": responder_id

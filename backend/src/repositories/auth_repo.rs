@@ -14,6 +14,20 @@ pub trait AuthRepository: Send + Sync {
         &self,
         username: &str,
     ) -> impl Future<Output = Result<Option<StoredUser>, AppError>> + Send;
+    fn find_by_id(
+        &self,
+        user_id: &str,
+    ) -> impl Future<Output = Result<Option<StoredUser>, AppError>> + Send;
+    fn update_display_name(
+        &self,
+        user_id: &str,
+        display_name: &str,
+    ) -> impl Future<Output = Result<User, AppError>> + Send;
+    fn update_password_hash(
+        &self,
+        user_id: &str,
+        password_hash: &str,
+    ) -> impl Future<Output = Result<(), AppError>> + Send;
     fn create_session(
         &self,
         session_id: &str,
@@ -168,6 +182,66 @@ impl AuthRepository for SqliteAuthRepository {
     async fn delete_session(&self, session_id: &str) -> Result<(), AppError> {
         sqlx::query("DELETE FROM sessions WHERE session_id = ?")
             .bind(session_id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    async fn find_by_id(&self, user_id: &str) -> Result<Option<StoredUser>, AppError> {
+        let row = sqlx::query(
+            r#"
+            SELECT id, username, display_name, password_hash, avatar
+            FROM users
+            WHERE id = ?
+            LIMIT 1
+            "#,
+        )
+        .bind(user_id)
+        .fetch_optional(&self.pool)
+        .await?;
+
+        Ok(row.map(|r| StoredUser {
+            user: User {
+                id: r.get("id"),
+                username: r.get("username"),
+                display_name: r.get("display_name"),
+                avatar: r.get("avatar"),
+            },
+            password_hash: r.get("password_hash"),
+        }))
+    }
+
+    async fn update_display_name(&self, user_id: &str, display_name: &str) -> Result<User, AppError> {
+        let now = now_sec();
+        sqlx::query("UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?")
+            .bind(display_name)
+            .bind(now)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+
+        let stored = self
+            .find_by_id(user_id)
+            .await?
+            .ok_or_else(|| AppError::NotFound("User not found".to_string()))?;
+
+        let user_json =
+            serde_json::to_string(&stored.user).map_err(|e| AppError::Internal(e.to_string()))?;
+        sqlx::query("UPDATE sessions SET user_json = ? WHERE user_id = ?")
+            .bind(&user_json)
+            .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+
+        Ok(stored.user)
+    }
+
+    async fn update_password_hash(&self, user_id: &str, password_hash: &str) -> Result<(), AppError> {
+        let now = now_sec();
+        sqlx::query("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?")
+            .bind(password_hash)
+            .bind(now)
+            .bind(user_id)
             .execute(&self.pool)
             .await?;
         Ok(())

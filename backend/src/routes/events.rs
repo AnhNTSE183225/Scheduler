@@ -208,7 +208,14 @@ pub async fn delete_event(
         return Err(AppError::NotFound("Event not found".to_string()));
     }
 
-    state.reminder_svc.notify_event_deleted(&calendar_id, &event_id);
+    let svc = state.reminder_svc.clone();
+    let actor_id = session.user.id.clone();
+    let actor_name = session.user.display_name.clone();
+    let occ = del_q.occurrence.clone();
+    tokio::spawn(async move {
+        svc.notify_event_deleted(&existing, &actor_id, &actor_name, occ.as_deref())
+            .await;
+    });
     Ok(Json(StateMachineDTO::active(json!({ "deleted": true }))))
 }
 
@@ -248,6 +255,14 @@ pub async fn respond_event(
         .await?
         .ok_or_else(|| AppError::NotFound("Event not found".to_string()))?;
 
-    state.reminder_svc.notify_rsvp_updated(&updated);
+    let svc = state.reminder_svc.clone();
+    let updated_clone = updated.clone();
+    let responder_id = session.user.id.clone();
+    let responder_name = session.user.display_name.clone();
+    let status_owned = status.to_string();
+    tokio::spawn(async move {
+        svc.notify_rsvp_updated(&updated_clone, &responder_id, &responder_name, &status_owned)
+            .await;
+    });
     Ok(Json(StateMachineDTO::active(json!({ "event": updated }))))
 }

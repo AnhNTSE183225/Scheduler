@@ -1,5 +1,5 @@
 import { createSignal, untrack } from 'solid-js';
-import { fetchMe, postLogin, postLogout, postRegister } from '@/api/auth';
+import { changePassword, fetchMe, postLogin, postLogout, postRegister, updateProfile } from '@/api/auth';
 import { getStoredToken, setStoredToken } from '@/api/client';
 import { createCalendarSpace, joinCalendarSpace } from '@/api/schedule';
 import type { CalendarSpace, EntityStatus, User } from '@/models/schedule';
@@ -121,6 +121,16 @@ export const authStore = {
     if (activeCalendarId() === calendarId) {
       setActiveCalendarId(remaining[0]?.id ?? null);
     }
+  },
+
+  async updateDisplayName(displayName: string): Promise<User> {
+    const res = await updateProfile(displayName);
+    setUser(res.data.user);
+    return res.data.user;
+  },
+
+  async changePassword(currentPassword: string, newPassword: string): Promise<void> {
+    await changePassword(currentPassword, newPassword);
   },
 
   async logout() {

@@ -256,6 +256,7 @@ impl<PR: PushRepository> PushService<PR> {
         for (name, val) in parts.headers.iter() {
             req = req.header(name.as_str(), val.as_bytes());
         }
+        req = req.header("Urgency", "high");
         req = req.header(axum::http::header::AUTHORIZATION, auth_header);
         req = req.body(body);
 

@@ -1,5 +1,5 @@
 use crate::error::AppError;
-use crate::models::auth::{LoginRequest, RegisterRequest};
+use crate::models::auth::{ChangePasswordRequest, LoginRequest, RegisterRequest, UpdateProfileRequest};
 use crate::models::state::StateMachineDTO;
 use crate::repositories::calendar_repo::CalendarRepository;
 use crate::routes::{extract_bearer_token, require_session};
@@ -103,4 +103,34 @@ pub async fn get_me(
         "calendars": calendars,
         "isAdmin": is_admin
     }))))
+}
+
+pub async fn update_profile(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Json(payload): Json<UpdateProfileRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let session = require_session(&headers, &state).await?;
+    let user = state
+        .auth_svc
+        .update_display_name(&session.user.id, &payload.display_name)
+        .await?;
+    Ok(Json(StateMachineDTO::active(json!({ "user": user }))))
+}
+
+pub async fn change_password(
+    headers: HeaderMap,
+    State(state): State<AppState>,
+    Json(payload): Json<ChangePasswordRequest>,
+) -> Result<impl IntoResponse, AppError> {
+    let session = require_session(&headers, &state).await?;
+    state
+        .auth_svc
+        .change_password(
+            &session.user.id,
+            &payload.current_password,
+            &payload.new_password,
+        )
+        .await?;
+    Ok(Json(StateMachineDTO::active(json!({ "ok": true }))))
 }

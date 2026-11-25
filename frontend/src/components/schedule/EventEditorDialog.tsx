@@ -1,5 +1,5 @@
 import { For, Show, createEffect, createMemo, createSignal } from 'solid-js';
-import { addMinutes, addMonths, format, isSameDay, parseISO, startOfDay } from 'date-fns';
+import { addDays, addMinutes, addMonths, format, isSameDay, parseISO, startOfDay } from 'date-fns';
 import { CalendarDays, Check, Image as ImageIcon, Loader2, Plus, Search, X } from 'lucide-solid';
 import { Dialog } from '@/components/ui/Dialog';
 import { CustomSelect, type SelectOption } from '@/components/ui/CustomSelect';
@@ -55,6 +55,8 @@ export function EventEditorDialog(props: {
   const [category, setCategory] = createSignal<EventCategory>('other');
   const [manualCategory, setManualCategory] = createSignal(false);
   const [day, setDay] = createSignal(format(new Date(), 'yyyy-MM-dd'));
+  const [multiDay, setMultiDay] = createSignal(false);
+  const [endDay, setEndDay] = createSignal(format(new Date(), 'yyyy-MM-dd'));
   const [time, setTime] = createSignal('19:00');
   const [endTime, setEndTime] = createSignal('20:00');
   const [freq, setFreq] = createSignal<FreqKind>('none');
@@ -78,6 +80,8 @@ export function EventEditorDialog(props: {
     if (!props.open) return;
     const init = props.initial;
     const s0 = defaultStart();
+    const e0 = addMinutes(s0, init?.durationMinutes ?? 60);
+    const isMulti = Boolean(init && !isSameDay(s0, e0));
     setSelectedCalendarId(
       init?.calendarId || props.defaultCalendarId || props.calendars[0]?.id || '',
     );
@@ -86,8 +90,10 @@ export function EventEditorDialog(props: {
     setCategory(init?.category ?? 'other');
     setManualCategory(Boolean(init?.category && init.category !== 'other'));
     setDay(format(s0, 'yyyy-MM-dd'));
+    setMultiDay(isMulti);
+    setEndDay(format(e0, 'yyyy-MM-dd'));
     setTime(format(s0, 'HH:mm'));
-    setEndTime(format(addMinutes(s0, init?.durationMinutes ?? 60), 'HH:mm'));
+    setEndTime(format(e0, 'HH:mm'));
     setFreq(init?.recurrence?.freq ?? 'none');
     setIntervalN(init?.recurrence?.interval ?? 1);
     setWeekdays(init?.recurrence?.weekdays ?? [s0.getDay()]);
@@ -158,21 +164,6 @@ export function EventEditorDialog(props: {
             count: ends() === 'count' ? Math.max(1, count()) : null,
           };
 
-    const parseMins = (hhmm: string) => {
-      const [h, m] = hhmm.split(':').map((n) => Number.parseInt(n, 10));
-      return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
-    };
-    let durationMinutes = parseMins(endTime()) - parseMins(time());
-    if (durationMinutes === 0) {
-      return setError('End time must be different from start time.');
-    }
-    if (durationMinutes < 0) {
-      durationMinutes += 24 * 60;
-    }
-    if (durationMinutes < 15) {
-      return setError('Event must be at least 15 minutes long.');
-    }
-
     const localDate = new Date(`${day()}T${time()}`);
     if (!isNaN(localDate.getTime())) {
       const isPast = localDate.getTime() < Date.now() - 60000;
@@ -180,6 +171,34 @@ export function EventEditorDialog(props: {
         return setError('Cannot schedule an event in the past. Please choose a future date and time.');
       }
     }
+
+    let durationMinutes: number;
+    if (multiDay()) {
+      const endLocal = new Date(`${endDay()}T${endTime()}`);
+      if (isNaN(localDate.getTime()) || isNaN(endLocal.getTime())) {
+        return setError('Choose valid start and end dates and times.');
+      }
+      durationMinutes = Math.round((endLocal.getTime() - localDate.getTime()) / 60000);
+      if (durationMinutes < 15) {
+        return setError('End date & time must be at least 15 minutes after start.');
+      }
+    } else {
+      const parseMins = (hhmm: string) => {
+        const [h, m] = hhmm.split(':').map((n) => Number.parseInt(n, 10));
+        return (Number.isFinite(h) ? h : 0) * 60 + (Number.isFinite(m) ? m : 0);
+      };
+      durationMinutes = parseMins(endTime()) - parseMins(time());
+      if (durationMinutes === 0) {
+        return setError('End time must be different from start time.');
+      }
+      if (durationMinutes < 0) {
+        durationMinutes += 24 * 60;
+      }
+      if (durationMinutes < 15) {
+        return setError('Event must be at least 15 minutes long.');
+      }
+    }
+
     const startIso = isNaN(localDate.getTime()) ? `${day()}T${time()}` : localDate.toISOString();
 
     const data: Partial<ScheduleEvent> = {
@@ -187,7 +206,7 @@ export function EventEditorDialog(props: {
       description: description(),
       category: category(),
       start: startIso,
-      durationMinutes: Math.min(1440, durationMinutes),
+      durationMinutes: Math.min(365 * 1440, durationMinutes),
       recurrence,
       location,
       imageUrl: imageUrl().trim() || null,
@@ -287,19 +306,60 @@ export function EventEditorDialog(props: {
           />
         </div>
 
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <div class="flex flex-col gap-1.5">
-            <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Date</span>
-            <CustomDatePicker value={day()} onChange={setDay} />
+        <div class="space-y-2.5">
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div class="flex flex-col gap-1.5">
+              <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
+                {multiDay() ? 'Start Date' : 'Date'}
+              </span>
+              <CustomDatePicker value={day()} onChange={setDay} />
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Start Time</span>
+              <CustomTimePicker value={time()} onChange={setTime} />
+            </div>
+            <Show
+              when={multiDay()}
+              fallback={
+                <div class="flex flex-col gap-1.5">
+                  <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">End Time</span>
+                  <CustomTimePicker value={endTime()} onChange={setEndTime} />
+                </div>
+              }
+            >
+              <div class="flex flex-col gap-1.5">
+                <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">End Date</span>
+                <CustomDatePicker value={endDay()} onChange={setEndDay} />
+              </div>
+            </Show>
           </div>
-          <div class="flex flex-col gap-1.5">
-            <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Start Time</span>
-            <CustomTimePicker value={time()} onChange={setTime} />
-          </div>
-          <div class="flex flex-col gap-1.5">
-            <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">End Time</span>
-            <CustomTimePicker value={endTime()} onChange={setEndTime} />
-          </div>
+
+          <Show
+            when={multiDay()}
+            fallback={
+              <div class="flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (endDay() <= day()) {
+                      setEndDay(format(addDays(parseISO(day()), 1), 'yyyy-MM-dd'));
+                    }
+                    setMultiDay(true);
+                  }}
+                  class="text-xs font-medium text-primary hover:underline inline-flex items-center gap-1"
+                >
+                  <Plus size={12} /> Multi-day
+                </button>
+              </div>
+            }
+          >
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div class="flex flex-col gap-1.5">
+                <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">End Time</span>
+                <CustomTimePicker value={endTime()} onChange={setEndTime} />
+              </div>
+            </div>
+          </Show>
         </div>
 
         <div class="flex flex-col gap-1.5">
