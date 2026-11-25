@@ -3,6 +3,8 @@ import {
   ArrowLeft,
   Check,
   Copy,
+  Download,
+  ExternalLink,
   Landmark,
   Loader2,
   Plus,
@@ -14,7 +16,15 @@ import {
 import { Dialog } from '@/components/ui/Dialog';
 import { CustomSelect } from '@/components/ui/CustomSelect';
 import { AvatarBadge } from './AvatarBadge';
-import { fetchVietQrBanks, formatVnd, generateVietQrDataUrl, type VietQrBank } from '@/lib/vietqr';
+import {
+  buildVietQrDeeplink,
+  fetchVietQrBankApps,
+  fetchVietQrBanks,
+  formatVnd,
+  generateVietQrDataUrl,
+  type VietQrApp,
+  type VietQrBank,
+} from '@/lib/vietqr';
 import type { SplitBill } from '@/models/schedule';
 import { authStore } from '@/stores/authStore';
 import { billStore } from '@/stores/billStore';
@@ -42,6 +52,12 @@ export function SplitBillModal(props: {
   const [mode, setMode] = createSignal<'list' | 'create' | 'detail'>('list');
   const [selectedBillId, setSelectedBillId] = createSignal<string | null>(null);
   const [banks, setBanks] = createSignal<VietQrBank[]>([]);
+  const [bankApps, setBankApps] = createSignal<VietQrApp[]>([]);
+  const [selectedAppId, setSelectedAppId] = createSignal(
+    typeof localStorage !== 'undefined'
+      ? localStorage.getItem('pulseplan_preferred_bank_app') || ''
+      : '',
+  );
 
   // Create form state
   const [calId, setCalId] = createSignal('');
@@ -60,6 +76,16 @@ export function SplitBillModal(props: {
 
   onMount(() => {
     void fetchVietQrBanks().then(setBanks);
+    void fetchVietQrBankApps().then((apps) => {
+      setBankApps(apps);
+      if (!selectedAppId() && apps.length > 0) {
+        const userCode = banks()
+          .find((b) => b.bin === user()?.bankBin)
+          ?.code?.toLowerCase();
+        const matched = userCode ? apps.find((a) => a.appId.toLowerCase() === userCode) : undefined;
+        setSelectedAppId(matched?.appId || apps[0].appId);
+      }
+    });
   });
 
   const resetCreateForm = (preferredCalId?: string) => {
@@ -167,6 +193,11 @@ export function SplitBillModal(props: {
   const bankNameForBin = (bin: string) => {
     const b = banks().find((x) => x.bin === bin);
     return b ? `${b.shortName} (${b.code})` : `BIN ${bin}`;
+  };
+
+  const bankCodeForBin = (bin: string) => {
+    const b = banks().find((x) => x.bin === bin);
+    return b?.code || bin;
   };
 
   const calNameForId = (cid: string) => {
@@ -825,6 +856,75 @@ export function SplitBillModal(props: {
                     <Show when={qrError()}>
                       <p class="text-xs text-destructive">{qrError()}</p>
                     </Show>
+
+                    <div class="pt-2 border-t border-primary/20 space-y-2.5">
+                      <div class="text-[11px] font-semibold text-muted-foreground">
+                        Pay on this device (Android / iOS)
+                      </div>
+                      <div class="flex flex-col sm:flex-row gap-2">
+                        <Show when={bankApps().length > 0}>
+                          <CustomSelect
+                            value={selectedAppId()}
+                            onChange={(appId) => {
+                              setSelectedAppId(appId);
+                              try {
+                                localStorage.setItem('pulseplan_preferred_bank_app', appId);
+                              } catch {}
+                            }}
+                            options={bankApps().map((a) => ({
+                              value: a.appId,
+                              label: a.appName,
+                              badge: a.autofill ? 'Auto-fill' : 'App only',
+                            }))}
+                            placeholder="Choose your banking app..."
+                            searchable
+                            searchPlaceholder="Search banking app..."
+                            ariaLabel="Choose your banking app"
+                            className="flex-1 min-w-0"
+                          />
+                        </Show>
+                        <Show when={selectedAppId()}>
+                          <a
+                            href={buildVietQrDeeplink({
+                              appId: selectedAppId(),
+                              accountNumber: bill.bankAccountNumber,
+                              bankCode: bankCodeForBin(bill.bankBin),
+                              amountVnd: myShare()!.amountVnd,
+                              memo: `${bill.title} - ${user()?.displayName || ''}`,
+                              accountName: bill.creatorName,
+                            })}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            class="h-9 px-3.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold inline-flex items-center justify-center gap-1.5 hover:opacity-90 shrink-0"
+                          >
+                            <ExternalLink size={13} />
+                            Open Banking App
+                          </a>
+                        </Show>
+                        <Show when={qrUrl()}>
+                          <a
+                            href={qrUrl()}
+                            download={`vietqr-${bill.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.png`}
+                            class="h-9 px-3 rounded-lg border border-border bg-card/80 hover:bg-accent text-xs font-medium inline-flex items-center justify-center gap-1.5 shrink-0"
+                          >
+                            <Download size={13} />
+                            Save QR
+                          </a>
+                        </Show>
+                      </div>
+                      <Show
+                        when={(() => {
+                          const app = bankApps().find((a) => a.appId === selectedAppId());
+                          return app && !app.autofill ? app : null;
+                        })()}
+                      >
+                        {(app) => (
+                          <p class="text-[11px] text-amber-400/90 leading-relaxed">
+                            Note: {app().appName} only opens the app via link (does not auto-fill amount/account). Use <strong>Save QR</strong> and import from Gallery/Photos, or copy the account number above.
+                          </p>
+                        )}
+                      </Show>
+                    </div>
                   </div>
                 </Show>
 

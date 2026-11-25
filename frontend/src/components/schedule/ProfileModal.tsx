@@ -197,7 +197,7 @@ export function ProfileModal(props: { open: boolean; onClose: () => void }) {
                         }))}
                         placeholder="Select bank..."
                         searchable
-                        searchPlaceholder="Search bank (VPBank, VCB...)"
+                        searchPlaceholder="Search bank..."
                         ariaLabel="Select bank"
                         className="w-full"
                       />
@@ -215,7 +215,6 @@ export function ProfileModal(props: { open: boolean; onClose: () => void }) {
                           setProfileSuccess('');
                         }}
                         maxLength={32}
-                        placeholder="e.g. 12308042004"
                         class="w-full h-9 px-3 rounded-lg border border-border bg-card/70 text-sm font-mono text-foreground outline-none focus:border-primary"
                       />
                     </div>
