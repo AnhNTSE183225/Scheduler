@@ -134,20 +134,30 @@ export function SplitBillModal(props: {
 
   const calMembers = createMemo(() => scheduleStore.membersByCalendar()[calId()] || []);
 
+  const parseSignedVnd = (raw: string) => {
+    const trimmed = raw.trim();
+    const isNeg = trimmed.startsWith('-');
+    const digits = trimmed.replace(/[^\d]/g, '').slice(0, 12);
+    const num = Math.round(Number(digits) || 0);
+    return isNeg && num > 0 ? -num : num;
+  };
+
   const previewTotals = createMemo(() => {
     const map = new Map<string, number>();
     for (const id of participantIds()) map.set(id, 0);
     let total = 0;
 
     for (const it of items()) {
-      const amt = Math.round(Number(it.amountStr.replace(/[^\d]/g, '')) || 0);
-      if (amt <= 0) continue;
+      const amt = parseSignedVnd(it.amountStr);
+      if (amt === 0) continue;
       const targets = it.scope === 'all' ? participantIds() : it.memberIds;
       if (targets.length === 0) continue;
-      const base = Math.floor(amt / targets.length);
+      const base = Math.trunc(amt / targets.length);
       const rem = amt % targets.length;
+      const remStep = rem >= 0 ? 1 : -1;
+      const remAbs = Math.abs(rem);
       targets.forEach((uid, idx) => {
-        map.set(uid, (map.get(uid) ?? 0) + base + (idx < rem ? 1 : 0));
+        map.set(uid, (map.get(uid) ?? 0) + base + (idx < remAbs ? remStep : 0));
       });
       total += amt;
     }
@@ -178,11 +188,11 @@ export function SplitBillModal(props: {
     const parsedItems = items()
       .map((it) => ({
         name: it.name.trim(),
-        amountVnd: Math.round(Number(it.amountStr.replace(/[^\d]/g, '')) || 0),
+        amountVnd: parseSignedVnd(it.amountStr),
         scope: it.scope,
         memberIds: it.scope === 'selected' ? it.memberIds : [],
       }))
-      .filter((it) => it.name || it.amountVnd > 0);
+      .filter((it) => it.name || it.amountVnd !== 0);
 
     if (parsedItems.length === 0) {
       setFormError('Add at least one expense item.');
@@ -190,7 +200,7 @@ export function SplitBillModal(props: {
     }
     for (const it of parsedItems) {
       if (!it.name) return setFormError('Every expense item needs a name.');
-      if (it.amountVnd <= 0) return setFormError(`Enter a positive VND amount for "${it.name}".`);
+      if (it.amountVnd === 0) return setFormError(`Enter a non-zero VND amount for "${it.name}".`);
       if (it.scope === 'selected' && it.memberIds.length === 0) {
         return setFormError(`Select at least one person for "${it.name}".`);
       }
@@ -477,19 +487,47 @@ export function SplitBillModal(props: {
                           placeholder="Expense name (e.g. Food)"
                           class="flex-1 min-w-[140px] h-9 px-3 rounded-lg border border-border bg-card/80 text-xs text-foreground outline-none focus:border-primary"
                         />
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setItems((prev) =>
+                              prev.map((x, i) => {
+                                if (i !== idx) return x;
+                                const isNeg = x.amountStr.startsWith('-');
+                                const digits = x.amountStr.replace(/[^\d]/g, '');
+                                return { ...x, amountStr: isNeg ? digits : `-${digits}` };
+                              }),
+                            )
+                          }
+                          title="Toggle positive / negative (credit)"
+                          class={`h-9 w-9 rounded-lg border text-xs font-bold shrink-0 grid place-items-center ${
+                            it().amountStr.startsWith('-')
+                              ? 'border-rose-500/40 bg-rose-500/15 text-rose-400'
+                              : 'border-border bg-card/80 text-muted-foreground hover:text-foreground'
+                          }`}
+                        >
+                          {it().amountStr.startsWith('-') ? '−' : '+'}
+                        </button>
                         <input
                           type="text"
-                          inputMode="numeric"
-                          maxLength={12}
+                          inputMode="text"
+                          maxLength={13}
                           value={it().amountStr}
                           onInput={(e) => {
-                            const val = e.currentTarget.value.replace(/[^\d]/g, '').slice(0, 12);
+                            const raw = e.currentTarget.value;
+                            const isNeg = raw.trim().startsWith('-');
+                            const digits = raw.replace(/[^\d]/g, '').slice(0, 12);
+                            const val = isNeg ? `-${digits}` : digits;
                             setItems((prev) =>
                               prev.map((x, i) => (i === idx ? { ...x, amountStr: val } : x)),
                             );
                           }}
                           placeholder="Amount (VND)"
-                          class="w-36 h-9 px-3 rounded-lg border border-border bg-card/80 text-xs font-mono text-right text-foreground outline-none focus:border-primary"
+                          class={`w-32 h-9 px-3 rounded-lg border bg-card/80 text-xs font-mono text-right outline-none focus:border-primary ${
+                            it().amountStr.startsWith('-')
+                              ? 'border-rose-500/40 text-rose-400'
+                              : 'border-border text-foreground'
+                          }`}
                         />
                         <button
                           type="button"
@@ -632,38 +670,123 @@ export function SplitBillModal(props: {
                 </div>
 
                 {/* Receipt / Bill Breakdown */}
-                <div class="p-4 rounded-xl border border-border bg-card/70 space-y-3">
-                  <div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Bill Breakdown
-                  </div>
+                <Show
+                  when={isCreator()}
+                  fallback={(() => {
+                    const uid = user()?.id || '';
+                    const myItems = bill.items
+                      .map((it) => {
+                        const targets = it.scope === 'all' ? bill.participantIds : it.memberIds;
+                        const idx = targets.indexOf(uid);
+                        if (idx === -1 || targets.length === 0) return null;
+                        const base = Math.trunc(it.amountVnd / targets.length);
+                        const rem = it.amountVnd % targets.length;
+                        const remStep = rem >= 0 ? 1 : -1;
+                        const remAbs = Math.abs(rem);
+                        const shareAmt = base + (idx < remAbs ? remStep : 0);
+                        return {
+                          id: it.id,
+                          name: it.name,
+                          fullAmount: it.amountVnd,
+                          splitCount: targets.length,
+                          shareAmount: shareAmt,
+                        };
+                      })
+                      .filter((x): x is NonNullable<typeof x> => x !== null);
 
-                  <div class="space-y-2">
-                    <For each={bill.items}>
-                      {(it) => (
-                        <div class="flex items-start justify-between gap-3 text-xs">
-                          <div class="min-w-0">
-                            <span class="font-medium text-foreground">{it.name}</span>
-                            <span class="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                              {it.scope === 'all'
-                                ? 'ALL'
-                                : it.memberIds.map((id) => `@${shareName(id)}`).join(', ')}
-                            </span>
-                          </div>
-                          <span class="font-mono font-semibold shrink-0 text-right">
-                            {formatVnd(it.amountVnd)}
+                    return (
+                      <div class="p-4 rounded-xl border border-border bg-card/70 space-y-3">
+                        <div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Your Bill Breakdown
+                        </div>
+
+                        <div class="space-y-2">
+                          <For each={myItems}>
+                            {(it) => {
+                              const isNeg = it.shareAmount < 0;
+                              return (
+                                <div class="flex items-start justify-between gap-3 text-xs">
+                                  <div class="min-w-0">
+                                    <span class={`font-medium ${isNeg ? 'text-rose-400' : 'text-foreground'}`}>
+                                      {it.name}
+                                    </span>
+                                    <Show when={it.splitCount > 1}>
+                                      <span class="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                                        1/{it.splitCount} of {formatVnd(it.fullAmount)}
+                                      </span>
+                                    </Show>
+                                  </div>
+                                  <span
+                                    class={`font-mono font-semibold shrink-0 text-right ${
+                                      isNeg ? 'text-rose-400' : 'text-foreground'
+                                    }`}
+                                  >
+                                    {formatVnd(it.shareAmount)}
+                                  </span>
+                                </div>
+                              );
+                            }}
+                          </For>
+                        </div>
+
+                        <div class="pt-3 border-t border-border flex items-center justify-between">
+                          <span class="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                            Your Total
+                          </span>
+                          <span
+                            class={`text-base font-bold font-mono ${
+                              (myShare()?.amountVnd ?? 0) < 0 ? 'text-rose-400' : 'text-primary'
+                            }`}
+                          >
+                            {formatVnd(myShare()?.amountVnd ?? 0)}
                           </span>
                         </div>
-                      )}
-                    </For>
-                  </div>
+                      </div>
+                    );
+                  })()}
+                >
+                  <div class="p-4 rounded-xl border border-border bg-card/70 space-y-3">
+                    <div class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                      Bill Breakdown
+                    </div>
 
-                  <div class="pt-3 border-t border-border flex items-center justify-between">
-                    <span class="text-xs font-bold uppercase tracking-wider text-muted-foreground">
-                      Total
-                    </span>
-                    <span class="text-base font-bold font-mono">{formatVnd(bill.totalVnd)}</span>
+                    <div class="space-y-2">
+                      <For each={bill.items}>
+                        {(it) => {
+                          const isNeg = it.amountVnd < 0;
+                          return (
+                            <div class="flex items-start justify-between gap-3 text-xs">
+                              <div class="min-w-0">
+                                <span class={`font-medium ${isNeg ? 'text-rose-400' : 'text-foreground'}`}>
+                                  {it.name}
+                                </span>
+                                <span class="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                                  {it.scope === 'all'
+                                    ? 'ALL'
+                                    : it.memberIds.map((id) => `@${shareName(id)}`).join(', ')}
+                                </span>
+                              </div>
+                              <span
+                                class={`font-mono font-semibold shrink-0 text-right ${
+                                  isNeg ? 'text-rose-400' : 'text-foreground'
+                                }`}
+                              >
+                                {formatVnd(it.amountVnd)}
+                              </span>
+                            </div>
+                          );
+                        }}
+                      </For>
+                    </div>
+
+                    <div class="pt-3 border-t border-border flex items-center justify-between">
+                      <span class="text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                        Total
+                      </span>
+                      <span class="text-base font-bold font-mono">{formatVnd(bill.totalVnd)}</span>
+                    </div>
                   </div>
-                </div>
+                </Show>
 
                 {/* Participant's own share + VietQR */}
                 <Show when={!isCreator() && myShare() && myShare()!.amountVnd > 0}>

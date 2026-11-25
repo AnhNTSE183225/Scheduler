@@ -147,9 +147,9 @@ pub async fn create_bill(
                 "Each expense item must have a name (1-120 characters)".to_string(),
             ));
         }
-        if raw.amount_vnd <= 0 || raw.amount_vnd > 1_000_000_000_000 {
+        if raw.amount_vnd == 0 || raw.amount_vnd.abs() > 1_000_000_000_000 {
             return Err(AppError::BadRequest(format!(
-                "Expense '{name}' must be between 1 and 1,000,000,000,000 VND"
+                "Expense '{name}' must be non-zero and within ±1,000,000,000,000 VND"
             )));
         }
 
@@ -184,8 +184,10 @@ pub async fn create_bill(
         let n = targets.len() as i64;
         let base = raw.amount_vnd / n;
         let rem = raw.amount_vnd % n;
+        let rem_step = if rem >= 0 { 1 } else { -1 };
+        let rem_abs = rem.abs();
         for (idx, uid) in targets.iter().enumerate() {
-            let extra = if (idx as i64) < rem { 1 } else { 0 };
+            let extra = if (idx as i64) < rem_abs { rem_step } else { 0 };
             let entry = owed.entry(uid.clone()).or_insert(0);
             *entry = entry
                 .checked_add(base + extra)

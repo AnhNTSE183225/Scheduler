@@ -231,7 +231,7 @@ where
         });
 
         for share in &bill.shares {
-            if share.user_id == bill.creator_id || share.amount_vnd <= 0 {
+            if share.user_id == bill.creator_id || share.amount_vnd == 0 {
                 continue;
             }
             let Ok(subs) = self
@@ -245,12 +245,22 @@ where
                 continue;
             }
 
-            let payload = PushPayload {
-                title: format!("Split Bill: {}", bill.title),
-                body: format!(
+            let body = if share.amount_vnd > 0 {
+                format!(
                     "{} requested {} VND · Tap to view & pay",
                     bill.creator_name, share.amount_vnd
-                ),
+                )
+            } else {
+                format!(
+                    "{} added a {} VND credit for you · Tap to view",
+                    bill.creator_name,
+                    share.amount_vnd.abs()
+                )
+            };
+
+            let payload = PushPayload {
+                title: format!("Split Bill: {}", bill.title),
+                body,
                 url: format!("{}/?bill={}", self.frontend_url, bill.id),
                 tag: format!("bill-{}", bill.id),
             };
