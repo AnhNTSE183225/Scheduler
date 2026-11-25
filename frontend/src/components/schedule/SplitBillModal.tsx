@@ -1,4 +1,4 @@
-import { For, Show, createEffect, createMemo, createSignal, onMount } from 'solid-js';
+import { For, Index, Show, createEffect, createMemo, createSignal, onMount } from 'solid-js';
 import {
   ArrowLeft,
   Check,
@@ -460,18 +460,18 @@ export function SplitBillModal(props: {
               </div>
 
               <div class="space-y-2.5">
-                <For each={items()}>
+                <Index each={items()}>
                   {(it, idx) => (
                     <div class="p-3 rounded-xl border border-border bg-card/50 space-y-2.5">
                       <div class="flex items-center gap-2 flex-wrap sm:flex-nowrap">
                         <input
                           type="text"
                           maxLength={120}
-                          value={it.name}
+                          value={it().name}
                           onInput={(e) => {
                             const val = e.currentTarget.value;
                             setItems((prev) =>
-                              prev.map((x, i) => (i === idx() ? { ...x, name: val } : x)),
+                              prev.map((x, i) => (i === idx ? { ...x, name: val } : x)),
                             );
                           }}
                           placeholder="Expense name (e.g. Food)"
@@ -481,11 +481,11 @@ export function SplitBillModal(props: {
                           type="text"
                           inputMode="numeric"
                           maxLength={12}
-                          value={it.amountStr}
+                          value={it().amountStr}
                           onInput={(e) => {
                             const val = e.currentTarget.value.replace(/[^\d]/g, '').slice(0, 12);
                             setItems((prev) =>
-                              prev.map((x, i) => (i === idx() ? { ...x, amountStr: val } : x)),
+                              prev.map((x, i) => (i === idx ? { ...x, amountStr: val } : x)),
                             );
                           }}
                           placeholder="Amount (VND)"
@@ -496,24 +496,24 @@ export function SplitBillModal(props: {
                           onClick={() =>
                             setItems((prev) =>
                               prev.map((x, i) =>
-                                i === idx()
+                                i === idx
                                   ? { ...x, scope: x.scope === 'all' ? 'selected' : 'all' }
                                   : x,
                               ),
                             )
                           }
                           class={`h-9 px-2.5 rounded-lg border text-xs font-semibold shrink-0 ${
-                            it.scope === 'all'
+                            it().scope === 'all'
                               ? 'border-primary/40 bg-primary/15 text-primary'
                               : 'border-amber-500/40 bg-amber-500/15 text-amber-400'
                           }`}
                         >
-                          {it.scope === 'all' ? 'ALL' : 'Specific'}
+                          {it().scope === 'all' ? 'ALL' : 'Specific'}
                         </button>
                         <Show when={items().length > 1}>
                           <button
                             type="button"
-                            onClick={() => setItems((prev) => prev.filter((_, i) => i !== idx()))}
+                            onClick={() => setItems((prev) => prev.filter((_, i) => i !== idx))}
                             class="h-9 w-9 rounded-lg border border-border hover:bg-destructive/15 hover:text-destructive grid place-items-center shrink-0"
                             aria-label="Remove item"
                           >
@@ -522,18 +522,18 @@ export function SplitBillModal(props: {
                         </Show>
                       </div>
 
-                      <Show when={it.scope === 'selected'}>
+                      <Show when={it().scope === 'selected'}>
                         <div class="flex flex-wrap gap-1.5 pt-1">
                           <For each={calMembers()}>
                             {(m) => {
-                              const picked = () => it.memberIds.includes(m.id);
+                              const picked = () => it().memberIds.includes(m.id);
                               return (
                                 <button
                                   type="button"
                                   onClick={() =>
                                     setItems((prev) =>
                                       prev.map((x, i) =>
-                                        i === idx()
+                                        i === idx
                                           ? {
                                               ...x,
                                               memberIds: picked()
@@ -559,7 +559,7 @@ export function SplitBillModal(props: {
                       </Show>
                     </div>
                   )}
-                </For>
+                </Index>
               </div>
             </div>
 
