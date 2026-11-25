@@ -70,7 +70,7 @@ export function CustomDatePicker(props: {
       </button>
 
       <Show when={open()}>
-        <div class="absolute left-0 mt-1.5 z-50 w-72 p-3 rounded-2xl border border-border bg-popover/95 backdrop-blur-md shadow-2xl">
+        <div class="absolute left-0 mt-1.5 z-50 w-72 max-w-[calc(100vw-3rem)] p-3 rounded-2xl border border-border bg-popover/95 backdrop-blur-md shadow-2xl">
           <div class="flex items-center justify-between gap-1 mb-2">
             <span class="font-semibold text-xs text-foreground pl-1">
               {format(viewDate(), 'MMMM yyyy')}

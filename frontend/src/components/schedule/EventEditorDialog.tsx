@@ -245,7 +245,7 @@ export function EventEditorDialog(props: {
         </button>
       </div>
 
-      <div class="flex-1 overflow-y-auto px-6 py-5 space-y-5">
+      <div class="flex-1 overflow-y-auto overflow-x-hidden px-6 py-5 space-y-5">
         <Show when={props.calendars.length > 0}>
           <div class="flex flex-col gap-1.5">
             <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Calendar</span>
@@ -306,37 +306,24 @@ export function EventEditorDialog(props: {
           />
         </div>
 
-        <div class="space-y-2.5">
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div class="flex flex-col gap-1.5">
-              <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">
-                {multiDay() ? 'Start Date' : 'Date'}
-              </span>
-              <CustomDatePicker value={day()} onChange={setDay} />
-            </div>
-            <div class="flex flex-col gap-1.5">
-              <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Start Time</span>
-              <CustomTimePicker value={time()} onChange={setTime} />
-            </div>
-            <Show
-              when={multiDay()}
-              fallback={
+        <Show
+          when={multiDay()}
+          fallback={
+            <div class="space-y-2.5">
+              <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div class="flex flex-col gap-1.5">
+                  <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Date</span>
+                  <CustomDatePicker value={day()} onChange={setDay} />
+                </div>
+                <div class="flex flex-col gap-1.5">
+                  <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Start Time</span>
+                  <CustomTimePicker value={time()} onChange={setTime} />
+                </div>
                 <div class="flex flex-col gap-1.5">
                   <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">End Time</span>
                   <CustomTimePicker value={endTime()} onChange={setEndTime} />
                 </div>
-              }
-            >
-              <div class="flex flex-col gap-1.5">
-                <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">End Date</span>
-                <CustomDatePicker value={endDay()} onChange={setEndDay} />
               </div>
-            </Show>
-          </div>
-
-          <Show
-            when={multiDay()}
-            fallback={
               <div class="flex justify-end">
                 <button
                   type="button"
@@ -351,16 +338,28 @@ export function EventEditorDialog(props: {
                   <Plus size={12} /> Multi-day
                 </button>
               </div>
-            }
-          >
-            <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div class="flex flex-col gap-1.5">
-                <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">End Time</span>
-                <CustomTimePicker value={endTime()} onChange={setEndTime} />
-              </div>
             </div>
-          </Show>
-        </div>
+          }
+        >
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="flex flex-col gap-1.5">
+              <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Start Date</span>
+              <CustomDatePicker value={day()} onChange={setDay} />
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Start Time</span>
+              <CustomTimePicker value={time()} onChange={setTime} />
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">End Date</span>
+              <CustomDatePicker value={endDay()} onChange={setEndDay} />
+            </div>
+            <div class="flex flex-col gap-1.5">
+              <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">End Time</span>
+              <CustomTimePicker value={endTime()} onChange={setEndTime} />
+            </div>
+          </div>
+        </Show>
 
         <div class="flex flex-col gap-1.5">
           <span class="text-[11px] font-semibold text-muted-foreground uppercase tracking-wider">Repeat</span>

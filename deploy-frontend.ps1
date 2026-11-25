@@ -46,20 +46,7 @@ function Get-WranglerInvocation {
     if (Test-Path $localWrangler) {
         return @{ Exe = $localWrangler; PrefixArgs = @() }
     }
-
-    $globalWrangler = Get-Command wrangler.cmd -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $globalWrangler) {
-        $globalWrangler = Get-Command wrangler -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    }
-    if ($globalWrangler) {
-        return @{ Exe = $globalWrangler.Source; PrefixArgs = @() }
-    }
-
-    $npx = Get-Command npx.cmd -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    if (-not $npx) {
-        throw "npx was not found in PATH. Please install Node.js."
-    }
-    return @{ Exe = $npx.Source; PrefixArgs = @("--yes", "wrangler") }
+    throw "Local wrangler was not found at $localWrangler. Run 'pnpm install' in frontend/."
 }
 
 function Invoke-WranglerStreaming {
