@@ -1,5 +1,6 @@
 use crate::config::AppConfig;
 use crate::repositories::auth_repo::SqliteAuthRepository;
+use crate::repositories::bill_repo::SqliteBillRepository;
 use crate::repositories::calendar_repo::SqliteCalendarRepository;
 use crate::repositories::event_repo::SqliteEventRepository;
 use crate::repositories::push_repo::SqlitePushRepository;
@@ -21,6 +22,7 @@ pub struct AppState {
     pub cal_repo: SqliteCalendarRepository,
     pub event_repo: SqliteEventRepository,
     pub push_repo: SqlitePushRepository,
+    pub bill_repo: SqliteBillRepository,
     pub auth_svc: AuthService<SqliteAuthRepository, SqliteCalendarRepository>,
     pub push_svc: PushService<SqlitePushRepository>,
     pub sse_svc: SseService,

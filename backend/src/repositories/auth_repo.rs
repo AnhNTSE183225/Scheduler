@@ -18,15 +18,18 @@ pub trait AuthRepository: Send + Sync {
         &self,
         user_id: &str,
     ) -> impl Future<Output = Result<Option<StoredUser>, AppError>> + Send;
-    fn update_display_name(
+    fn update_profile(
         &self,
         user_id: &str,
         display_name: &str,
+        bank_bin: Option<&str>,
+        bank_account_number: Option<&str>,
     ) -> impl Future<Output = Result<User, AppError>> + Send;
     fn update_password_hash(
         &self,
         user_id: &str,
         password_hash: &str,
+        keep_session_id: &str,
     ) -> impl Future<Output = Result<(), AppError>> + Send;
     fn create_session(
         &self,
@@ -83,7 +86,7 @@ impl AuthRepository for SqliteAuthRepository {
     async fn find_by_username(&self, username: &str) -> Result<Option<StoredUser>, AppError> {
         let row = sqlx::query(
             r#"
-            SELECT id, username, display_name, password_hash, avatar
+            SELECT id, username, display_name, password_hash, avatar, bank_bin, bank_account_number
             FROM users
             WHERE username = ?
             LIMIT 1
@@ -99,6 +102,8 @@ impl AuthRepository for SqliteAuthRepository {
                 username: r.get("username"),
                 display_name: r.get("display_name"),
                 avatar: r.get("avatar"),
+                bank_bin: r.get("bank_bin"),
+                bank_account_number: r.get("bank_account_number"),
             },
             password_hash: r.get("password_hash"),
         }))
@@ -194,7 +199,7 @@ impl AuthRepository for SqliteAuthRepository {
     async fn find_by_id(&self, user_id: &str) -> Result<Option<StoredUser>, AppError> {
         let row = sqlx::query(
             r#"
-            SELECT id, username, display_name, password_hash, avatar
+            SELECT id, username, display_name, password_hash, avatar, bank_bin, bank_account_number
             FROM users
             WHERE id = ?
             LIMIT 1
@@ -210,19 +215,31 @@ impl AuthRepository for SqliteAuthRepository {
                 username: r.get("username"),
                 display_name: r.get("display_name"),
                 avatar: r.get("avatar"),
+                bank_bin: r.get("bank_bin"),
+                bank_account_number: r.get("bank_account_number"),
             },
             password_hash: r.get("password_hash"),
         }))
     }
 
-    async fn update_display_name(&self, user_id: &str, display_name: &str) -> Result<User, AppError> {
+    async fn update_profile(
+        &self,
+        user_id: &str,
+        display_name: &str,
+        bank_bin: Option<&str>,
+        bank_account_number: Option<&str>,
+    ) -> Result<User, AppError> {
         let now = now_sec();
-        sqlx::query("UPDATE users SET display_name = ?, updated_at = ? WHERE id = ?")
-            .bind(display_name)
-            .bind(now)
-            .bind(user_id)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query(
+            "UPDATE users SET display_name = ?, bank_bin = ?, bank_account_number = ?, updated_at = ? WHERE id = ?",
+        )
+        .bind(display_name)
+        .bind(bank_bin)
+        .bind(bank_account_number)
+        .bind(now)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?;
 
         let stored = self
             .find_by_id(user_id)
@@ -240,12 +257,22 @@ impl AuthRepository for SqliteAuthRepository {
         Ok(stored.user)
     }
 
-    async fn update_password_hash(&self, user_id: &str, password_hash: &str) -> Result<(), AppError> {
+    async fn update_password_hash(
+        &self,
+        user_id: &str,
+        password_hash: &str,
+        keep_session_id: &str,
+    ) -> Result<(), AppError> {
         let now = now_sec();
         sqlx::query("UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?")
             .bind(password_hash)
             .bind(now)
             .bind(user_id)
+            .execute(&self.pool)
+            .await?;
+        sqlx::query("DELETE FROM sessions WHERE user_id = ? AND session_id != ?")
+            .bind(user_id)
+            .bind(keep_session_id)
             .execute(&self.pool)
             .await?;
         Ok(())

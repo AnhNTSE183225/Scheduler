@@ -23,6 +23,9 @@ importers:
       solid-transition-group:
         specifier: ^0.2.3
         version: 0.2.3(solid-js@1.9.19)
+      vietqr:
+        specifier: ^1.2.0
+        version: 1.2.0
     devDependencies:
       '@tailwindcss/vite':
         specifier: ^4.1.4
@@ -1218,6 +1221,9 @@ packages:
     resolution: {integrity: sha512-AC/7JofJvZGrrneWNaEnJeOLUx+JlGt7tNa0wZiRPT4MY1wmfKjt2+6O2p2uz2+skll8OZZmJMNqeke7kKbNgQ==}
     hasBin: true
 
+  jpeg-js@0.4.4:
+    resolution: {integrity: sha512-WZzeDOEtTOBK4Mdsar0IqEU5sMr3vSV2RqkAIzUEV2BHnUfKGyswWFPFwK5EeDo93K3FohSHbLAjj0s1Wzd+dg==}
+
   js-tokens@4.0.0:
     resolution: {integrity: sha512-RdJUflcE3cUzKiMqQgsCu06FPu9UdIJO0beYbPhHN4k6apgJtifcoCtT9bcxOpYBtpD2kCM6Sbzg4CausW/PKQ==}
 
@@ -1483,6 +1489,9 @@ packages:
     hasBin: true
     peerDependencies:
       browserslist: '>= 4.21.0'
+
+  vietqr@1.2.0:
+    resolution: {integrity: sha512-/0g3ihr3VwGyV6Pm5vxgMt2LKcSeZF4dtJ+DGiQV4nQTp+lRZ5jAKt48YxBAhujoBV7DBiDPqIGK6Gb3D7DG6Q==}
 
   vite-plugin-solid@2.11.16:
     resolution: {integrity: sha512-qguFUmqY2ICuoGHrZjm+cWpvKkqVyWDMptipC/BIEGr9q6wEzwTWYOjM9pEWJ+yoTuF6T5OpysI2Okdy7rsVlQ==}
@@ -2535,6 +2544,8 @@ snapshots:
 
   jiti@2.7.0: {}
 
+  jpeg-js@0.4.4: {}
+
   js-tokens@4.0.0: {}
 
   jsesc@3.1.0: {}
@@ -2787,6 +2798,10 @@ snapshots:
       browserslist: 4.29.6
       escalade: 3.2.0
       picocolors: 1.1.1
+
+  vietqr@1.2.0:
+    dependencies:
+      jpeg-js: 0.4.4
 
   vite-plugin-solid@2.11.16(solid-js@1.9.19)(supports-color@10.2.2)(vite@6.4.6(@types/node@18.19.130)(jiti@2.7.0)(lightningcss@1.33.0)):
     dependencies:

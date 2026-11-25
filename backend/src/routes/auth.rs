@@ -2,7 +2,7 @@ use crate::error::AppError;
 use crate::models::auth::{ChangePasswordRequest, LoginRequest, RegisterRequest, UpdateProfileRequest};
 use crate::models::state::StateMachineDTO;
 use crate::repositories::calendar_repo::CalendarRepository;
-use crate::routes::{extract_bearer_token, require_session};
+use crate::routes::{extract_bearer_token, extract_client_ip, require_session};
 use crate::state::AppState;
 use axum::{
     Json,
@@ -16,10 +16,11 @@ use validator::Validate;
 
 pub async fn register(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     State(state): State<AppState>,
     Json(payload): Json<RegisterRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let key = format!("{}:register", addr.ip());
+    let key = format!("{}:register", extract_client_ip(&headers, addr));
     if !state.auth_limiter.check(&key) {
         return Err(AppError::TooManyRequests(
             "Too many registration attempts. Please wait a minute.".to_string(),
@@ -47,10 +48,11 @@ pub async fn register(
 
 pub async fn login(
     ConnectInfo(addr): ConnectInfo<SocketAddr>,
+    headers: HeaderMap,
     State(state): State<AppState>,
     Json(payload): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-    let ip_key = format!("{}:login", addr.ip());
+    let ip_key = format!("{}:login", extract_client_ip(&headers, addr));
     if !state.auth_limiter.check(&ip_key) {
         return Err(AppError::TooManyRequests(
             "Too many login attempts. Please wait a minute.".to_string(),
@@ -113,23 +115,40 @@ pub async fn update_profile(
     let session = require_session(&headers, &state).await?;
     let user = state
         .auth_svc
-        .update_display_name(&session.user.id, &payload.display_name)
+        .update_profile(
+            &session.user.id,
+            &payload.display_name,
+            payload.bank_bin.as_deref(),
+            payload.bank_account_number.as_deref(),
+        )
         .await?;
     Ok(Json(StateMachineDTO::active(json!({ "user": user }))))
 }
 
 pub async fn change_password(
+    ConnectInfo(addr): ConnectInfo<SocketAddr>,
     headers: HeaderMap,
     State(state): State<AppState>,
     Json(payload): Json<ChangePasswordRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     let session = require_session(&headers, &state).await?;
+    let key = format!("{}:chpw:{}", extract_client_ip(&headers, addr), session.user.id);
+    if !state.auth_limiter.check(&key) {
+        return Err(AppError::TooManyRequests(
+            "Too many password change attempts. Please wait a minute.".to_string(),
+        ));
+    }
+    payload
+        .validate()
+        .map_err(|e| AppError::BadRequest(format!("Validation error: {e}")))?;
+
     state
         .auth_svc
         .change_password(
             &session.user.id,
             &payload.current_password,
             &payload.new_password,
+            &session.session_id,
         )
         .await?;
     Ok(Json(StateMachineDTO::active(json!({ "ok": true }))))

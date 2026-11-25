@@ -12,6 +12,7 @@ mod state;
 use crate::config::AppConfig;
 use crate::models::state::EntityStatus;
 use crate::repositories::auth_repo::SqliteAuthRepository;
+use crate::repositories::bill_repo::SqliteBillRepository;
 use crate::repositories::calendar_repo::SqliteCalendarRepository;
 use crate::repositories::event_repo::SqliteEventRepository;
 use crate::repositories::init_pool;
@@ -97,6 +98,7 @@ async fn main() -> anyhow::Result<()> {
     let cal_repo = SqliteCalendarRepository::new(pool.clone());
     let event_repo = SqliteEventRepository::new(pool.clone());
     let push_repo = SqlitePushRepository::new(pool.clone());
+    let bill_repo = SqliteBillRepository::new(pool.clone());
 
     let auth_svc = AuthService::new(auth_repo, cal_repo.clone(), cfg.clone());
     let push_svc = PushService::initialize(push_repo.clone(), http, &cfg).await?;
@@ -116,6 +118,7 @@ async fn main() -> anyhow::Result<()> {
         cal_repo,
         event_repo,
         push_repo,
+        bill_repo,
         auth_svc,
         push_svc,
         sse_svc,

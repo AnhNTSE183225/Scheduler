@@ -22,6 +22,50 @@ export interface User {
   username: string;
   displayName: string;
   avatar: string | null;
+  bankBin?: string | null;
+  bankAccountNumber?: string | null;
+}
+
+export interface BillItem {
+  id: string;
+  name: string;
+  amountVnd: number;
+  scope: 'all' | 'selected';
+  memberIds: string[];
+}
+
+export interface BillShare {
+  userId: string;
+  displayName: string;
+  amountVnd: number;
+  paid?: boolean;
+}
+
+export interface SplitBill {
+  id: string;
+  calendarId: string;
+  creatorId: string;
+  creatorName: string;
+  title: string;
+  bankBin: string;
+  bankAccountNumber: string;
+  participantIds: string[];
+  items: BillItem[];
+  shares: BillShare[];
+  totalVnd: number;
+  createdAt: number;
+}
+
+export interface CreateBillPayload {
+  calendarId: string;
+  title: string;
+  participantIds: string[];
+  items: Array<{
+    name: string;
+    amountVnd: number;
+    scope: 'all' | 'selected';
+    memberIds?: string[];
+  }>;
 }
 
 export interface CalendarSpace {

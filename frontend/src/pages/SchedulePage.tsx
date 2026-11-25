@@ -20,6 +20,7 @@ import {
   Filter as FilterIcon,
   Loader2,
   Plus,
+  Receipt,
   RefreshCw,
   Users,
 } from 'lucide-solid';
@@ -28,6 +29,7 @@ import { SlidingSegmentedControl } from '@/components/ui/SlidingSegmentedControl
 import { AgendaView } from '@/components/schedule/AgendaView';
 import { CalendarFilterDropdown } from '@/components/schedule/CalendarFilterDropdown';
 import { MonthGrid } from '@/components/schedule/MonthGrid';
+import { SplitBillModal } from '@/components/schedule/SplitBillModal';
 import { WeekGrid } from '@/components/schedule/WeekGrid';
 import { EventDetailsDialog } from '@/components/schedule/EventDetailsDialog';
 import { EventEditorDialog } from '@/components/schedule/EventEditorDialog';
@@ -49,13 +51,19 @@ const FILTER_OPTIONS: SelectOption<Filter>[] = [
   { value: 'mine', label: 'Organized by me', icon: <CalendarDays size={12} /> },
 ];
 
-export function SchedulePage() {
+export function SchedulePage(props: { onOpenProfile?: () => void }) {
+  const initialBill =
+    typeof window !== 'undefined'
+      ? new URLSearchParams(window.location.search).get('bill')
+      : null;
   const [view, setView] = createSignal<View>('agenda');
   const [filter, setFilter] = createSignal<Filter>('all');
   const [cursor, setCursor] = createSignal(startOfDay(new Date()));
   const [selected, setSelected] = createSignal<{ id: string; key: string } | null>(null);
   const [editing, setEditing] = createSignal<{ event?: ScheduleEvent; date?: Date } | null>(null);
   const [groupModalOpen, setGroupModalOpen] = createSignal(false);
+  const [billsOpen, setBillsOpen] = createSignal(Boolean(initialBill));
+  const [initialBillId, setInitialBillId] = createSignal<string | null>(initialBill);
   const [slideDir, setSlideDir] = createSignal<'right' | 'left'>('right');
   const [refreshing, setRefreshing] = createSignal(false);
   const [hiddenCalendarIds, setHiddenCalendarIds] = createSignal<string[]>([]);
@@ -177,6 +185,17 @@ export function SchedulePage() {
         </div>
 
         <div class="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setInitialBillId(null);
+              setBillsOpen(true);
+            }}
+            class="h-9 px-3 rounded-lg border border-border bg-card/70 hover:bg-accent text-xs font-medium inline-flex items-center gap-1.5"
+          >
+            <Receipt size={13} class="text-primary" />
+            Split Bills
+          </button>
           <button
             type="button"
             onClick={() => setGroupModalOpen(true)}
@@ -374,6 +393,16 @@ export function SchedulePage() {
       />
 
       <GroupModal open={groupModalOpen()} onClose={() => setGroupModalOpen(false)} />
+
+      <SplitBillModal
+        open={billsOpen()}
+        initialBillId={initialBillId()}
+        onClose={() => {
+          setBillsOpen(false);
+          setInitialBillId(null);
+        }}
+        onOpenProfile={() => props.onOpenProfile?.()}
+      />
 
       <Show when={scheduleStore.liveToast()}>
         {(toast) => (

@@ -1,16 +1,20 @@
-import { Show, createEffect, createSignal } from 'solid-js';
-import { Bell, BellOff, Check, KeyRound, Lock, User as UserIcon, X } from 'lucide-solid';
+import { For, Show, createEffect, createSignal, onMount } from 'solid-js';
+import { Bell, BellOff, Check, KeyRound, Landmark, Lock, User as UserIcon, X } from 'lucide-solid';
 import { Dialog } from '@/components/ui/Dialog';
 import { AvatarBadge } from './AvatarBadge';
+import { fetchVietQrBanks, type VietQrBank } from '@/lib/vietqr';
 import { authStore } from '@/stores/authStore';
 import { notificationStore } from '@/stores/notificationStore';
 
 export function ProfileModal(props: { open: boolean; onClose: () => void }) {
   const user = () => authStore.user();
   const [displayName, setDisplayName] = createSignal('');
-  const [nameSaving, setNameSaving] = createSignal(false);
-  const [nameError, setNameError] = createSignal('');
-  const [nameSuccess, setNameSuccess] = createSignal('');
+  const [bankBin, setBankBin] = createSignal('');
+  const [bankAccountNumber, setBankAccountNumber] = createSignal('');
+  const [banks, setBanks] = createSignal<VietQrBank[]>([]);
+  const [profileSaving, setProfileSaving] = createSignal(false);
+  const [profileError, setProfileError] = createSignal('');
+  const [profileSuccess, setProfileSuccess] = createSignal('');
 
   const [currentPassword, setCurrentPassword] = createSignal('');
   const [newPassword, setNewPassword] = createSignal('');
@@ -19,11 +23,17 @@ export function ProfileModal(props: { open: boolean; onClose: () => void }) {
   const [pwError, setPwError] = createSignal('');
   const [pwSuccess, setPwSuccess] = createSignal('');
 
+  onMount(() => {
+    void fetchVietQrBanks().then(setBanks);
+  });
+
   createEffect(() => {
     if (!props.open) return;
     setDisplayName(user()?.displayName ?? '');
-    setNameError('');
-    setNameSuccess('');
+    setBankBin(user()?.bankBin ?? '');
+    setBankAccountNumber(user()?.bankAccountNumber ?? '');
+    setProfileError('');
+    setProfileSuccess('');
     setCurrentPassword('');
     setNewPassword('');
     setConfirmPassword('');
@@ -31,28 +41,37 @@ export function ProfileModal(props: { open: boolean; onClose: () => void }) {
     setPwSuccess('');
   });
 
-  const handleSaveName = async (e: Event) => {
+  const handleSaveProfile = async (e: Event) => {
     e.preventDefault();
     const trimmed = displayName().trim();
     if (!trimmed) {
-      setNameError('Display name cannot be empty.');
+      setProfileError('Display name cannot be empty.');
       return;
     }
     if (trimmed.length > 80) {
-      setNameError('Display name must be 80 characters or fewer.');
+      setProfileError('Display name must be 80 characters or fewer.');
       return;
     }
-    setNameSaving(true);
-    setNameError('');
-    setNameSuccess('');
+    const cleanBin = bankBin().trim();
+    const cleanAcc = bankAccountNumber().trim();
+    if ((cleanBin && !cleanAcc) || (!cleanBin && cleanAcc)) {
+      setProfileError('Please select a bank AND enter your bank account number.');
+      return;
+    }
+
+    setProfileSaving(true);
+    setProfileError('');
+    setProfileSuccess('');
     try {
-      const updated = await authStore.updateDisplayName(trimmed);
+      const updated = await authStore.updateProfile(trimmed, cleanBin || null, cleanAcc || null);
       setDisplayName(updated.displayName);
-      setNameSuccess('Display name updated.');
+      setBankBin(updated.bankBin ?? '');
+      setBankAccountNumber(updated.bankAccountNumber ?? '');
+      setProfileSuccess('Profile updated.');
     } catch (err: unknown) {
-      setNameError(err instanceof Error ? err.message : 'Failed to update display name');
+      setProfileError(err instanceof Error ? err.message : 'Failed to update profile');
     } finally {
-      setNameSaving(false);
+      setProfileSaving(false);
     }
   };
 
@@ -120,8 +139,8 @@ export function ProfileModal(props: { open: boolean; onClose: () => void }) {
                 </div>
               </div>
 
-              {/* Profile details */}
-              <form onSubmit={(e) => void handleSaveName(e)} class="space-y-3">
+              {/* Profile details + Bank Info */}
+              <form onSubmit={(e) => void handleSaveProfile(e)} class="space-y-3">
                 <div class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                   Profile Details
                 </div>
@@ -140,36 +159,85 @@ export function ProfileModal(props: { open: boolean; onClose: () => void }) {
 
                 <div class="flex flex-col gap-1.5">
                   <label class="text-[11px] font-semibold text-muted-foreground">Display Name</label>
-                  <div class="flex gap-2">
-                    <input
-                      type="text"
-                      value={displayName()}
-                      onInput={(e) => {
-                        setDisplayName(e.currentTarget.value);
-                        setNameError('');
-                        setNameSuccess('');
-                      }}
-                      maxLength={80}
-                      placeholder="Your display name"
-                      class="flex-1 h-9 px-3 rounded-lg border border-border bg-card/70 text-sm text-foreground outline-none focus:border-primary"
-                    />
-                    <button
-                      type="submit"
-                      disabled={nameSaving() || displayName().trim() === u().displayName}
-                      class="h-9 px-3.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1.5 shrink-0"
-                    >
-                      <Check size={13} />
-                      {nameSaving() ? 'Saving...' : 'Save'}
-                    </button>
+                  <input
+                    type="text"
+                    value={displayName()}
+                    onInput={(e) => {
+                      setDisplayName(e.currentTarget.value);
+                      setProfileError('');
+                      setProfileSuccess('');
+                    }}
+                    maxLength={80}
+                    placeholder="Your display name"
+                    class="w-full h-9 px-3 rounded-lg border border-border bg-card/70 text-sm text-foreground outline-none focus:border-primary"
+                  />
+                </div>
+
+                <div class="pt-2 space-y-3">
+                  <div class="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
+                    <Landmark size={12} class="text-primary" />
+                    Bank Info (for Split Bills / VietQR)
+                  </div>
+
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div class="flex flex-col gap-1.5">
+                      <label class="text-[11px] font-semibold text-muted-foreground">Bank</label>
+                      <select
+                        value={bankBin()}
+                        onChange={(e) => {
+                          setBankBin(e.currentTarget.value);
+                          setProfileError('');
+                          setProfileSuccess('');
+                        }}
+                        class="w-full h-9 px-3 rounded-lg border border-border bg-card/70 text-xs text-foreground outline-none focus:border-primary"
+                      >
+                        <option value="">Select bank...</option>
+                        <For each={banks()}>
+                          {(b) => (
+                            <option value={b.bin}>
+                              {b.shortName} ({b.code})
+                            </option>
+                          )}
+                        </For>
+                      </select>
+                    </div>
+
+                    <div class="flex flex-col gap-1.5">
+                      <label class="text-[11px] font-semibold text-muted-foreground">Account Number</label>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        value={bankAccountNumber()}
+                        onInput={(e) => {
+                          setBankAccountNumber(e.currentTarget.value);
+                          setProfileError('');
+                          setProfileSuccess('');
+                        }}
+                        maxLength={32}
+                        placeholder="e.g. 12308042004"
+                        class="w-full h-9 px-3 rounded-lg border border-border bg-card/70 text-sm font-mono text-foreground outline-none focus:border-primary"
+                      />
+                    </div>
                   </div>
                 </div>
 
-                <Show when={nameError()}>
-                  <p class="text-xs text-destructive">{nameError()}</p>
+                <Show when={profileError()}>
+                  <p class="text-xs text-destructive">{profileError()}</p>
                 </Show>
-                <Show when={nameSuccess()}>
-                  <p class="text-xs text-primary">{nameSuccess()}</p>
+                <Show when={profileSuccess()}>
+                  <p class="text-xs text-primary">{profileSuccess()}</p>
                 </Show>
+
+                <div class="flex justify-end">
+                  <button
+                    type="submit"
+                    disabled={profileSaving()}
+                    class="h-9 px-4 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1.5"
+                  >
+                    <Check size={13} />
+                    {profileSaving() ? 'Saving...' : 'Save Profile'}
+                  </button>
+                </div>
               </form>
 
               {/* Password reset */}

@@ -114,7 +114,7 @@ export function App() {
                 when={!publicShareToken()}
                 fallback={<PublicEventPage shareToken={publicShareToken()!} onBackHome={goHome} />}
               >
-                <SchedulePage />
+                <SchedulePage onOpenProfile={() => setProfileOpen(true)} />
               </Show>
             </Show>
           </Show>

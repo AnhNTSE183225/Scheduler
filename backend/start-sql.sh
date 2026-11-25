@@ -52,9 +52,9 @@ if command -v sqlite_web >/dev/null 2>&1; then
 elif command -v python3 >/dev/null 2>&1 && python3 -c "import sqlite_web" >/dev/null 2>&1; then
     CMD=(python3 -m sqlite_web)
 elif command -v pipx >/dev/null 2>&1; then
-    CMD=(pipx run sqlite-web)
+    CMD=(pipx run --spec sqlite-web sqlite_web)
 elif command -v uvx >/dev/null 2>&1; then
-    CMD=(uvx sqlite-web)
+    CMD=(uvx --from sqlite-web sqlite_web)
 else
     echo "ERROR: Could not find sqlite_web, pipx, or uvx." >&2
     echo "Install once with: pipx install sqlite-web  (or: pip install sqlite-web)" >&2
@@ -75,11 +75,25 @@ echo "Local Bind : 127.0.0.1:$LOCAL_PORT (read-write)"
 
 nohup "${CMD[@]}" -H 127.0.0.1 -p "$LOCAL_PORT" "$DB_PATH" >"$LOG_FILE" 2>&1 &
 SQL_PID=$!
-sleep 1
 
-if ! kill -0 "$SQL_PID" 2>/dev/null; then
-    echo "ERROR: sqlite-web failed to start. Last log lines:" >&2
-    tail -n 20 "$LOG_FILE" >&2 || true
+READY=0
+for _ in $(seq 1 40); do
+    if ! kill -0 "$SQL_PID" 2>/dev/null; then
+        echo "ERROR: sqlite-web exited unexpectedly. Log output:" >&2
+        cat "$LOG_FILE" >&2 || true
+        exit 1
+    fi
+    if (echo > "/dev/tcp/127.0.0.1/$LOCAL_PORT") >/dev/null 2>&1; then
+        READY=1
+        break
+    fi
+    sleep 0.5
+done
+
+if [ "$READY" -ne 1 ]; then
+    echo "ERROR: sqlite-web did not start listening on 127.0.0.1:$LOCAL_PORT within 20s. Log output:" >&2
+    cat "$LOG_FILE" >&2 || true
+    kill -15 "$SQL_PID" 2>/dev/null || true
     exit 1
 fi
 

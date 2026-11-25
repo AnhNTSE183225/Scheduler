@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod bills;
 pub mod calendars;
 pub mod events;
 pub mod health;
@@ -38,6 +39,10 @@ pub fn build_router(state: AppState) -> Router {
             axum::routing::put(events::update_event).delete(events::delete_event),
         )
         .route("/api/schedule/{calendar_id}/{event_id}/respond", post(events::respond_event))
+        // Split Bills
+        .route("/api/bills", get(bills::list_bills).post(bills::create_bill))
+        .route("/api/bills/{bill_id}", get(bills::get_bill).delete(bills::delete_bill))
+        .route("/api/bills/{bill_id}/paid", post(bills::set_bill_paid))
         // Public Shareable Event Links (zero-friction RSVP & Push subscribe)
         .route("/api/public/events/{share_token}", get(public_events::get_public_event))
         .route("/api/public/events/{share_token}/respond", post(public_events::respond_public_event))
@@ -80,4 +85,27 @@ pub async fn require_session(headers: &HeaderMap, state: &AppState) -> Result<Us
 pub async fn optional_session(headers: &HeaderMap, state: &AppState) -> Option<UserSession> {
     let token = extract_bearer_token(headers)?;
     state.auth_svc.verify_token(&token).await.ok()
+}
+
+pub fn extract_client_ip(headers: &HeaderMap, addr: std::net::SocketAddr) -> String {
+    if addr.ip().is_loopback() {
+        if let Some(cf) = headers
+            .get("cf-connecting-ip")
+            .and_then(|v| v.to_str().ok())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return cf.to_string();
+        }
+        if let Some(xff) = headers
+            .get("x-forwarded-for")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.split(',').next())
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            return xff.to_string();
+        }
+    }
+    addr.ip().to_string()
 }

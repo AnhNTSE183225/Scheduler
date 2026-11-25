@@ -1,3 +1,4 @@
+use crate::models::bill::SplitBill;
 use crate::models::event::ScheduleEvent;
 use crate::models::notification::{PushSubscriptionRecord, SseNotificationEvent};
 use crate::repositories::calendar_repo::CalendarRepository;
@@ -216,6 +217,44 @@ where
         let sent = self.push_svc.dispatch_to_subscriptions(&subs, &payload).await;
         if sent > 0 {
             info!(event_id = %event.id, organizer_id = %event.organizer_id, sent, "Dispatched RSVP notification Web Push");
+        }
+    }
+
+    pub async fn notify_bill_created(&self, bill: &SplitBill) {
+        self.sse_svc.broadcast(SseNotificationEvent {
+            kind: "bill_created".to_string(),
+            calendar_id: bill.calendar_id.clone(),
+            event_id: bill.id.clone(),
+            title: Some(bill.title.clone()),
+            message: Some(format!("Split bill from {}", bill.creator_name)),
+            timestamp: now_sec(),
+        });
+
+        for share in &bill.shares {
+            if share.user_id == bill.creator_id || share.amount_vnd <= 0 {
+                continue;
+            }
+            let Ok(subs) = self
+                .push_repo
+                .list_subscriptions_for_users(std::slice::from_ref(&share.user_id))
+                .await
+            else {
+                continue;
+            };
+            if subs.is_empty() {
+                continue;
+            }
+
+            let payload = PushPayload {
+                title: format!("Split Bill: {}", bill.title),
+                body: format!(
+                    "{} requested {} VND · Tap to view & pay",
+                    bill.creator_name, share.amount_vnd
+                ),
+                url: format!("{}/?bill={}", self.frontend_url, bill.id),
+                tag: format!("bill-{}", bill.id),
+            };
+            let _ = self.push_svc.dispatch_to_subscriptions(&subs, &payload).await;
         }
     }
 

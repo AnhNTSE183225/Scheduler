@@ -123,8 +123,12 @@ export const authStore = {
     }
   },
 
-  async updateDisplayName(displayName: string): Promise<User> {
-    const res = await updateProfile(displayName);
+  async updateProfile(
+    displayName: string,
+    bankBin?: string | null,
+    bankAccountNumber?: string | null,
+  ): Promise<User> {
+    const res = await updateProfile(displayName, bankBin, bankAccountNumber);
     setUser(res.data.user);
     return res.data.user;
   },

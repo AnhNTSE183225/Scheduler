@@ -8,6 +8,10 @@ pub struct User {
     #[serde(rename = "displayName")]
     pub display_name: String,
     pub avatar: Option<String>,
+    #[serde(default, rename = "bankBin")]
+    pub bank_bin: Option<String>,
+    #[serde(default, rename = "bankAccountNumber")]
+    pub bank_account_number: Option<String>,
 }
 
 /// Internal DB representation including the Argon2id password hash (never serialized to HTTP).
@@ -49,6 +53,10 @@ pub struct UpdateProfileRequest {
     #[serde(rename = "displayName")]
     #[validate(length(min = 1, max = 80))]
     pub display_name: String,
+    #[serde(default, rename = "bankBin")]
+    pub bank_bin: Option<String>,
+    #[serde(default, rename = "bankAccountNumber")]
+    pub bank_account_number: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Validate)]

@@ -107,6 +107,8 @@ impl<AR: AuthRepository, CR: CalendarRepository> AuthService<AR, CR> {
             username: clean_username,
             display_name: clean_display,
             avatar: None,
+            bank_bin: None,
+            bank_account_number: None,
         };
 
         self.auth_repo.create_user(&user, &password_hash).await?;
@@ -178,10 +180,12 @@ impl<AR: AuthRepository, CR: CalendarRepository> AuthService<AR, CR> {
         self.auth_repo.delete_session(token).await
     }
 
-    pub async fn update_display_name(
+    pub async fn update_profile(
         &self,
         user_id: &str,
         display_name: &str,
+        bank_bin: Option<&str>,
+        bank_account_number: Option<&str>,
     ) -> Result<User, AppError> {
         let clean_name = display_name.trim();
         let name_chars = clean_name.chars().count();
@@ -190,11 +194,45 @@ impl<AR: AuthRepository, CR: CalendarRepository> AuthService<AR, CR> {
                 "Display name must be between 1 and 80 characters".to_string(),
             ));
         }
+
+        let clean_bin = bank_bin
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        if let Some(ref b) = clean_bin {
+            if b.len() != 6 || !b.chars().all(|c| c.is_ascii_digit()) {
+                return Err(AppError::BadRequest(
+                    "Bank BIN must be a 6-digit code".to_string(),
+                ));
+            }
+        }
+
+        let clean_acc = bank_account_number
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty());
+        if let Some(ref a) = clean_acc {
+            if a.len() > 32 || !a.chars().all(|c| c.is_ascii_alphanumeric()) {
+                return Err(AppError::BadRequest(
+                    "Bank account number must be 1-32 alphanumeric characters".to_string(),
+                ));
+            }
+        }
+
+        if clean_bin.is_some() != clean_acc.is_some() {
+            return Err(AppError::BadRequest(
+                "Please provide both a Bank and Bank Account Number".to_string(),
+            ));
+        }
+
         let user = self
             .auth_repo
-            .update_display_name(user_id, clean_name)
+            .update_profile(
+                user_id,
+                clean_name,
+                clean_bin.as_deref(),
+                clean_acc.as_deref(),
+            )
             .await?;
-        info!(user_id = %user.id, "User display name updated");
+        info!(user_id = %user.id, "User profile updated");
         Ok(user)
     }
 
@@ -203,6 +241,7 @@ impl<AR: AuthRepository, CR: CalendarRepository> AuthService<AR, CR> {
         user_id: &str,
         current_password: &str,
         new_password: &str,
+        keep_session_id: &str,
     ) -> Result<(), AppError> {
         let stored = self
             .auth_repo
@@ -230,7 +269,9 @@ impl<AR: AuthRepository, CR: CalendarRepository> AuthService<AR, CR> {
         }
 
         let new_hash = Self::hash_password(new_password.to_string()).await?;
-        self.auth_repo.update_password_hash(user_id, &new_hash).await?;
+        self.auth_repo
+            .update_password_hash(user_id, &new_hash, keep_session_id)
+            .await?;
         info!(user_id = %user_id, "User password changed");
         Ok(())
     }

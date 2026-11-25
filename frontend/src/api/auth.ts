@@ -45,10 +45,18 @@ export function postLogout(): Promise<StateMachineDTO<{ ok: boolean }>> {
   });
 }
 
-export function updateProfile(displayName: string): Promise<StateMachineDTO<{ user: User }>> {
+export function updateProfile(
+  displayName: string,
+  bankBin?: string | null,
+  bankAccountNumber?: string | null,
+): Promise<StateMachineDTO<{ user: User }>> {
   return apiFetch<StateMachineDTO<{ user: User }>>('/me', {
     method: 'PUT',
-    body: JSON.stringify({ displayName }),
+    body: JSON.stringify({
+      displayName,
+      bankBin: bankBin || null,
+      bankAccountNumber: bankAccountNumber || null,
+    }),
   });
 }
 

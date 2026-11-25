@@ -1,4 +1,5 @@
 pub mod auth_repo;
+pub mod bill_repo;
 pub mod calendar_repo;
 pub mod event_repo;
 pub mod push_repo;
@@ -130,10 +131,35 @@ pub async fn init_pool(database_url: &str) -> Result<SqlitePool, sqlx::Error> {
             value TEXT NOT NULL,
             created_at REAL NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS split_bills (
+            id TEXT PRIMARY KEY,
+            calendar_id TEXT NOT NULL,
+            creator_id TEXT NOT NULL,
+            creator_name TEXT NOT NULL,
+            title TEXT NOT NULL,
+            bank_bin TEXT NOT NULL,
+            bank_account_number TEXT NOT NULL,
+            participant_ids_json TEXT NOT NULL,
+            items_json TEXT NOT NULL,
+            shares_json TEXT NOT NULL,
+            total_vnd INTEGER NOT NULL,
+            created_at REAL NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_split_bills_calendar ON split_bills(calendar_id);
+        CREATE INDEX IF NOT EXISTS idx_split_bills_creator ON split_bills(creator_id);
         "#,
     )
     .execute(&pool)
     .await?;
+
+    // Safe additive migrations for existing SQLite databases
+    for stmt in [
+        "ALTER TABLE users ADD COLUMN bank_bin TEXT",
+        "ALTER TABLE users ADD COLUMN bank_account_number TEXT",
+    ] {
+        let _ = sqlx::query(stmt).execute(&pool).await;
+    }
 
     Ok(pool)
 }

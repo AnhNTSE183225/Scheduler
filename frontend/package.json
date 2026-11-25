@@ -13,7 +13,8 @@
     "date-fns": "^4.1.0",
     "lucide-solid": "^0.511.0",
     "solid-js": "^1.9.5",
-    "solid-transition-group": "^0.2.3"
+    "solid-transition-group": "^0.2.3",
+    "vietqr": "^1.2.0"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.4",
