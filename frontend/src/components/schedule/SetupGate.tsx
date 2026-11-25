@@ -87,7 +87,11 @@ export function SetupGate() {
             <Show when={!notificationStore.canInstallPrompt() && (mode() === 'android-or-desktop' || mode() === 'unsupported')}>
               <div class="flex items-center gap-2 text-[11px] text-muted-foreground bg-muted/40 px-3 py-2 rounded-lg">
                 <Smartphone size={14} class="text-primary shrink-0" />
-                <span>If already installed, close this browser tab and open the PulsePlan app icon.</span>
+                <span>
+                  {notificationStore.appInstalledInTab()
+                    ? 'PulsePlan is installed! Close this browser tab and open the installed PulsePlan app to continue.'
+                    : 'If already installed, close this browser tab and open the PulsePlan app icon.'}
+                </span>
               </div>
             </Show>
           </Show>

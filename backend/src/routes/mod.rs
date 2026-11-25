@@ -82,11 +82,6 @@ pub async fn require_session(headers: &HeaderMap, state: &AppState) -> Result<Us
     state.auth_svc.verify_token(&token).await
 }
 
-pub async fn optional_session(headers: &HeaderMap, state: &AppState) -> Option<UserSession> {
-    let token = extract_bearer_token(headers)?;
-    state.auth_svc.verify_token(&token).await.ok()
-}
-
 pub fn extract_client_ip(headers: &HeaderMap, addr: std::net::SocketAddr) -> String {
     if addr.ip().is_loopback() {
         if let Some(cf) = headers

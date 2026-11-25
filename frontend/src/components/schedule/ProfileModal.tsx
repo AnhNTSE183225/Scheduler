@@ -1,6 +1,7 @@
-import { For, Show, createEffect, createSignal, onMount } from 'solid-js';
+import { Show, createEffect, createSignal, onMount } from 'solid-js';
 import { Bell, BellOff, Check, KeyRound, Landmark, Lock, User as UserIcon, X } from 'lucide-solid';
 import { Dialog } from '@/components/ui/Dialog';
+import { CustomSelect } from '@/components/ui/CustomSelect';
 import { AvatarBadge } from './AvatarBadge';
 import { fetchVietQrBanks, type VietQrBank } from '@/lib/vietqr';
 import { authStore } from '@/stores/authStore';
@@ -182,24 +183,24 @@ export function ProfileModal(props: { open: boolean; onClose: () => void }) {
                   <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div class="flex flex-col gap-1.5">
                       <label class="text-[11px] font-semibold text-muted-foreground">Bank</label>
-                      <select
+                      <CustomSelect
                         value={bankBin()}
-                        onChange={(e) => {
-                          setBankBin(e.currentTarget.value);
+                        onChange={(val) => {
+                          setBankBin(val);
                           setProfileError('');
                           setProfileSuccess('');
                         }}
-                        class="w-full h-9 px-3 rounded-lg border border-border bg-card/70 text-xs text-foreground outline-none focus:border-primary"
-                      >
-                        <option value="">Select bank...</option>
-                        <For each={banks()}>
-                          {(b) => (
-                            <option value={b.bin}>
-                              {b.shortName} ({b.code})
-                            </option>
-                          )}
-                        </For>
-                      </select>
+                        options={banks().map((b) => ({
+                          value: b.bin,
+                          label: b.shortName,
+                          badge: b.code,
+                        }))}
+                        placeholder="Select bank..."
+                        searchable
+                        searchPlaceholder="Search bank (VPBank, VCB...)"
+                        ariaLabel="Select bank"
+                        className="w-full"
+                      />
                     </div>
 
                     <div class="flex flex-col gap-1.5">

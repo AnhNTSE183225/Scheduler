@@ -22,6 +22,7 @@ const [permission, setPermission] = createSignal<NotificationPermission>(
 );
 const [installMode, setInstallMode] = createSignal<PlatformInstallMode>(detectInstallMode());
 const [deferredPrompt, setDeferredPrompt] = createSignal<BeforeInstallPromptEvent | null>(null);
+const [appInstalledInTab, setAppInstalledInTab] = createSignal(false);
 const [errorMsg, setErrorMsg] = createSignal<string | null>(null);
 const [feedbackMsg, setFeedbackMsg] = createSignal<string | null>(null);
 const [initialized, setInitialized] = createSignal(false);
@@ -33,7 +34,8 @@ if (typeof window !== 'undefined') {
   });
   window.addEventListener('appinstalled', () => {
     setDeferredPrompt(null);
-    setInstallMode('standalone');
+    setAppInstalledInTab(true);
+    setInstallMode(detectInstallMode());
   });
 }
 
@@ -59,6 +61,7 @@ export const notificationStore = {
   permission,
   installMode,
   initialized,
+  appInstalledInTab,
   canInstallPrompt: () => deferredPrompt() !== null,
   errorMsg,
   feedbackMsg,
