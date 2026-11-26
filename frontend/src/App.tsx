@@ -2,8 +2,10 @@ import { Show, createMemo, createSignal, onMount } from 'solid-js';
 import { CalendarDays, Loader2, LogOut } from 'lucide-solid';
 import { getStoredToken } from '@/api/client';
 import { AvatarBadge } from '@/components/schedule/AvatarBadge';
+import { MobileAppShell } from '@/components/mobile/MobileAppShell';
 import { ProfileModal } from '@/components/schedule/ProfileModal';
 import { SetupGate } from '@/components/schedule/SetupGate';
+import { useIsMobile } from '@/lib/useIsMobile';
 import { LoginPage } from '@/pages/LoginPage';
 import { PublicEventPage } from '@/pages/PublicEventPage';
 import { SchedulePage } from '@/pages/SchedulePage';
@@ -16,6 +18,7 @@ export function App() {
     typeof window !== 'undefined' ? window.location.pathname : '/',
   );
   const [profileOpen, setProfileOpen] = createSignal(false);
+  const isMobile = useIsMobile();
 
   onMount(() => {
     void authStore.bootstrap();
@@ -35,11 +38,20 @@ export function App() {
     setPathname('/');
   };
 
+  const showMobileApp = () =>
+    isMobile() &&
+    Boolean(authStore.user()) &&
+    notificationStore.initialized() &&
+    notificationStore.installMode() === 'standalone' &&
+    notificationStore.status() === 'active' &&
+    !publicShareToken();
+
   return (
     <div class="app-shell">
       <div class="ambient-glow" />
 
-      <header class="app-header">
+      <Show when={!showMobileApp()}>
+        <header class="app-header">
         <a
           href="/"
           onClick={(e) => {
@@ -85,6 +97,7 @@ export function App() {
           )}
         </Show>
       </header>
+      </Show>
 
       <Show
         when={authStore.status() !== 'loading' || Boolean(authStore.user()) || !getStoredToken()}
@@ -114,7 +127,12 @@ export function App() {
                 when={!publicShareToken()}
                 fallback={<PublicEventPage shareToken={publicShareToken()!} onBackHome={goHome} />}
               >
-                <SchedulePage onOpenProfile={() => setProfileOpen(true)} />
+                <Show
+                  when={!isMobile()}
+                  fallback={<MobileAppShell />}
+                >
+                  <SchedulePage onOpenProfile={() => setProfileOpen(true)} />
+                </Show>
               </Show>
             </Show>
           </Show>

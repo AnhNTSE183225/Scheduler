@@ -42,8 +42,17 @@ export function AgendaView(props: {
   const [now, setNow] = createSignal(new Date());
 
   onMount(() => {
-    const timer = window.setInterval(() => setNow(new Date()), 60_000);
-    onCleanup(() => window.clearInterval(timer));
+    const timer = window.setInterval(() => {
+      if (!document.hidden) setNow(new Date());
+    }, 60_000);
+    const onVisibility = () => {
+      if (!document.hidden) setNow(new Date());
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    onCleanup(() => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    });
   });
 
   const groups = createMemo(() => {

@@ -19,7 +19,7 @@ export function Dialog(props: {
   return (
     <Show when={props.open}>
       <div
-        class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/65 backdrop-blur-sm"
+        class="fixed inset-0 z-50 flex items-center justify-center p-0 sm:p-4 bg-black/65 backdrop-blur-sm"
         onClick={(e) => {
           if (e.target === e.currentTarget) props.onClose();
         }}
@@ -27,7 +27,7 @@ export function Dialog(props: {
         <div
           role="dialog"
           aria-modal="true"
-          class={`w-full ${props.maxWidthClass || 'max-w-xl'} max-h-[90dvh] rounded-2xl border border-border bg-popover/95 shadow-2xl overflow-hidden flex flex-col`}
+          class={`w-full ${props.maxWidthClass || 'max-w-xl'} h-[100dvh] sm:h-auto sm:max-h-[90dvh] rounded-none sm:rounded-2xl border-0 sm:border sm:border-border bg-popover/95 shadow-2xl overflow-hidden flex flex-col`}
         >
           {props.children}
         </div>

@@ -27,6 +27,7 @@ const [liveToast, setLiveToast] = createSignal<string | null>(null);
 
 const eventSources = new Map<string, EventSource>();
 const reconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const retryCounts = new Map<string, number>();
 let toastTimer: ReturnType<typeof setTimeout> | null = null;
 let streamEpoch = 0;
 
@@ -120,6 +121,7 @@ export const scheduleStore = {
   syncStreams(calendarIds: string[]) {
     teardownStreams();
     if (!getStoredToken()) return;
+    if (typeof document !== 'undefined' && document.hidden) return;
     const epoch = streamEpoch;
 
     for (const calId of calendarIds) {
@@ -129,15 +131,17 @@ export const scheduleStore = {
 
   async connectStream(calendarId: string, epoch: number) {
     if (!getStoredToken() || epoch !== streamEpoch) return;
+    if (typeof document !== 'undefined' && document.hidden) return;
 
     try {
       const ticketRes = await postStreamTicket(calendarId);
-      if (epoch !== streamEpoch) return;
+      if (epoch !== streamEpoch || (typeof document !== 'undefined' && document.hidden)) return;
 
       const es = new EventSource(
         `${API_BASE}/api/stream/${encodeURIComponent(calendarId)}?ticket=${encodeURIComponent(ticketRes.data.ticket)}`,
       );
       es.addEventListener('schedule', (e: MessageEvent) => {
+        retryCounts.delete(calendarId);
         try {
           const msg = JSON.parse(e.data) as SseNotificationEvent;
           if (msg.kind === 'connected') return;
@@ -152,13 +156,17 @@ export const scheduleStore = {
         if (eventSources.get(calendarId) === es) {
           eventSources.delete(calendarId);
         }
-        if (epoch === streamEpoch && getStoredToken()) {
+        if (epoch === streamEpoch && getStoredToken() && (typeof document === 'undefined' || !document.hidden)) {
+          const attempt = retryCounts.get(calendarId) ?? 0;
+          retryCounts.set(calendarId, attempt + 1);
+          const baseDelay = Math.min(60_000, 5_000 * Math.pow(2, attempt));
+          const delayMs = Math.round(baseDelay * (1 + Math.random() * 0.2));
           const timer = setTimeout(() => {
             reconnectTimers.delete(calendarId);
-            if (epoch === streamEpoch) {
+            if (epoch === streamEpoch && (typeof document === 'undefined' || !document.hidden)) {
               void scheduleStore.connectStream(calendarId, epoch);
             }
-          }, 5000);
+          }, delayMs);
           reconnectTimers.set(calendarId, timer);
         }
       };
@@ -169,6 +177,8 @@ export const scheduleStore = {
   },
 
   disconnect() {
+    teardownStreams();
+    retryCounts.clear();
     setEvents([]);
     setMembersByCalendar({});
     setLoadedCalendars([]);
@@ -204,3 +214,16 @@ export const scheduleStore = {
     return res.data.event;
   },
 };
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) {
+      teardownStreams();
+    } else if (getStoredToken()) {
+      const cals = untrack(loadedCalendars);
+      if (cals.length > 0) {
+        void scheduleStore.loadAll(cals);
+      }
+    }
+  });
+}
