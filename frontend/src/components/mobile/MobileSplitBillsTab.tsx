@@ -380,12 +380,12 @@ export function MobileSplitBillsTab(props: {
       {/* Group Filter Bottom Sheet */}
       <Show when={groupSheetOpen()}>
         <div
-          class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end"
+          class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end mobile-backdrop-in"
           onClick={(e) => {
             if (e.target === e.currentTarget) setGroupSheetOpen(false);
           }}
         >
-          <div class="w-full rounded-t-[23.5px] bg-popover border-t border-border p-5 pb-[max(20px,env(safe-area-inset-bottom))] space-y-3">
+          <div class="w-full rounded-t-[23.5px] bg-popover border-t border-border p-5 pb-[max(20px,env(safe-area-inset-bottom))] space-y-3 mobile-sheet-up">
             <div class="w-10 h-1 rounded-full bg-border mx-auto" />
             <div class="text-base font-bold">Filter by Group</div>
             <div class="space-y-1 max-h-64 overflow-y-auto">
@@ -448,12 +448,12 @@ export function MobileSplitBillsTab(props: {
 
           return (
             <div
-              class="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-end"
+              class="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-end mobile-backdrop-in"
               onClick={(e) => {
                 if (e.target === e.currentTarget) setSelectedBillId(null);
               }}
             >
-              <div class="w-full max-h-[90dvh] rounded-t-[23.5px] bg-popover border-t border-border flex flex-col overflow-hidden">
+              <div class="w-full max-h-[90dvh] rounded-t-[23.5px] bg-popover border-t border-border flex flex-col overflow-hidden mobile-sheet-up">
                 <div class="pt-2.5 flex justify-center shrink-0">
                   <div class="w-10 h-1 rounded-full bg-border" />
                 </div>
@@ -727,7 +727,7 @@ export function MobileSplitBillsTab(props: {
 
       {/* Full-Screen Create Split Bill Page (Single Back button, sticky bottom CTA) */}
       <Show when={creating()}>
-        <div class="fixed inset-0 z-50 bg-background flex flex-col">
+        <div class="fixed inset-0 z-50 bg-background flex flex-col mobile-page-in">
           <div class="px-4 py-3 border-b border-border flex items-center justify-between gap-3 shrink-0">
             <button
               type="button"

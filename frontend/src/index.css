@@ -655,6 +655,78 @@
   to { opacity: 1; transform: translateX(0); }
 }
 
+/* Mobile UI spring animations & tactile feedback (scoped to .mobile-shell) */
+.mobile-shell button:not(:disabled),
+.mobile-shell a[href] {
+  transition:
+    transform 0.14s cubic-bezier(0.16, 1, 0.3, 1),
+    background-color 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease,
+    opacity 0.2s ease;
+}
+.mobile-shell button:not(:disabled):active,
+.mobile-shell a[href]:active {
+  transform: scale(0.965);
+}
+
+.mobile-nav-pill button.is-active {
+  color: #020617;
+  font-weight: 600;
+}
+.mobile-view-pill button.is-active {
+  color: var(--primary-foreground);
+  font-weight: 600;
+}
+
+.mobile-backdrop-in {
+  animation: mobileBackdropIn 0.22s ease-out both;
+}
+.mobile-sheet-up {
+  animation: mobileSheetUp 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.mobile-page-in {
+  animation: mobilePageSlideIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+.mobile-pop-in {
+  animation: mobilePopIn 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@keyframes mobileBackdropIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes mobileSheetUp {
+  from { opacity: 0.4; transform: translateY(36px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes mobilePageSlideIn {
+  from { opacity: 0.4; transform: translateX(32px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes mobilePopIn {
+  from { opacity: 0; transform: scale(0.94) translateY(6px); }
+  to { opacity: 1; transform: scale(1) translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mobile-backdrop-in,
+  .mobile-sheet-up,
+  .mobile-page-in,
+  .mobile-pop-in,
+  .schedule-slide-from-right,
+  .schedule-slide-from-left {
+    animation: none;
+  }
+  .schedule-seg-indicator {
+    transition: none;
+  }
+  .mobile-shell button:not(:disabled):active,
+  .mobile-shell a[href]:active {
+    transform: none;
+  }
+}
+
 @media (max-width: 740px) {
   .app-header {
     padding: 10px 14px;

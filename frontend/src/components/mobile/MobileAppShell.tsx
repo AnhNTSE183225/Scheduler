@@ -1,5 +1,6 @@
 import { Show, createEffect, createSignal, on } from 'solid-js';
 import { EventEditorDialog } from '@/components/schedule/EventEditorDialog';
+import { SlidingSegmentedControl } from '@/components/ui/SlidingSegmentedControl';
 import { MobileEventDetailsSheet } from './MobileEventDetailsSheet';
 import { MobileGroupsTab } from './MobileGroupsTab';
 import { MobileProfileTab } from './MobileProfileTab';
@@ -10,6 +11,7 @@ import { authStore } from '@/stores/authStore';
 import { scheduleStore } from '@/stores/scheduleStore';
 
 type MobileTab = 'schedule' | 'bills' | 'groups' | 'profile';
+const TAB_ORDER: MobileTab[] = ['schedule', 'bills', 'groups', 'profile'];
 
 export function MobileAppShell() {
   const initialBill =
@@ -18,9 +20,26 @@ export function MobileAppShell() {
       : null;
 
   const [tab, setTab] = createSignal<MobileTab>(initialBill ? 'bills' : 'schedule');
+  const [slideDir, setSlideDir] = createSignal<'left' | 'right' | null>(null);
   const [billDeepLink, setBillDeepLink] = createSignal<string | null>(initialBill);
   const [selectedOcc, setSelectedOcc] = createSignal<Occurrence | null>(null);
   const [editing, setEditing] = createSignal<{ event?: ScheduleEvent; date?: Date } | null>(null);
+
+  const switchTab = (next: MobileTab) => {
+    const prevIdx = TAB_ORDER.indexOf(tab());
+    const nextIdx = TAB_ORDER.indexOf(next);
+    if (prevIdx !== nextIdx) {
+      setSlideDir(nextIdx > prevIdx ? 'right' : 'left');
+      setTab(next);
+    }
+  };
+
+  const tabSlideClass = () =>
+    slideDir() === 'right'
+      ? 'flex-1 flex flex-col schedule-slide-from-right'
+      : slideDir() === 'left'
+      ? 'flex-1 flex flex-col schedule-slide-from-left'
+      : 'flex-1 flex flex-col';
 
   createEffect(
     on(
@@ -32,30 +51,38 @@ export function MobileAppShell() {
   );
 
   return (
-    <div class="min-h-[100dvh] flex flex-col bg-background text-foreground">
-      <div class="flex-1 flex flex-col">
+    <div class="mobile-shell min-h-[100dvh] flex flex-col bg-background text-foreground">
+      <div class="flex-1 flex flex-col overflow-x-hidden">
         <Show when={tab() === 'schedule'}>
-          <MobileScheduleTab
-            onOpenEvent={(o) => setSelectedOcc(o)}
-            onCreateEvent={(date) => setEditing({ date })}
-            onGoProfile={() => setTab('profile')}
-          />
+          <div class={tabSlideClass()}>
+            <MobileScheduleTab
+              onOpenEvent={(o) => setSelectedOcc(o)}
+              onCreateEvent={(date) => setEditing({ date })}
+              onGoProfile={() => switchTab('profile')}
+            />
+          </div>
         </Show>
 
         <Show when={tab() === 'bills'}>
-          <MobileSplitBillsTab
-            initialBillId={billDeepLink()}
-            onClearInitialBill={() => setBillDeepLink(null)}
-            onGoProfile={() => setTab('profile')}
-          />
+          <div class={tabSlideClass()}>
+            <MobileSplitBillsTab
+              initialBillId={billDeepLink()}
+              onClearInitialBill={() => setBillDeepLink(null)}
+              onGoProfile={() => switchTab('profile')}
+            />
+          </div>
         </Show>
 
         <Show when={tab() === 'groups'}>
-          <MobileGroupsTab />
+          <div class={tabSlideClass()}>
+            <MobileGroupsTab />
+          </div>
         </Show>
 
         <Show when={tab() === 'profile'}>
-          <MobileProfileTab />
+          <div class={tabSlideClass()}>
+            <MobileProfileTab />
+          </div>
         </Show>
       </div>
 
@@ -64,52 +91,20 @@ export function MobileAppShell() {
         aria-label="Mobile navigation"
         class="fixed inset-x-0 bottom-0 z-40 px-4 pb-[max(18px,env(safe-area-inset-bottom))] pointer-events-none"
       >
-        <div class="pointer-events-auto flex p-1.5 rounded-full border border-border bg-popover/95 backdrop-blur-xl shadow-2xl text-[13.5px] font-medium">
-          <button
-            type="button"
-            onClick={() => setTab('schedule')}
-            class={`flex-1 h-11 rounded-full grid place-items-center ${
-              tab() === 'schedule'
-                ? 'bg-primary text-primary-foreground font-semibold'
-                : 'text-muted-foreground'
-            }`}
-          >
-            Schedule
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('bills')}
-            class={`flex-1 h-11 rounded-full grid place-items-center ${
-              tab() === 'bills'
-                ? 'bg-primary text-primary-foreground font-semibold'
-                : 'text-muted-foreground'
-            }`}
-          >
-            Split Bills
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('groups')}
-            class={`flex-1 h-11 rounded-full grid place-items-center ${
-              tab() === 'groups'
-                ? 'bg-primary text-primary-foreground font-semibold'
-                : 'text-muted-foreground'
-            }`}
-          >
-            Groups
-          </button>
-          <button
-            type="button"
-            onClick={() => setTab('profile')}
-            class={`flex-1 h-11 rounded-full grid place-items-center ${
-              tab() === 'profile'
-                ? 'bg-primary text-primary-foreground font-semibold'
-                : 'text-muted-foreground'
-            }`}
-          >
-            Profile
-          </button>
-        </div>
+        <SlidingSegmentedControl
+          value={tab()}
+          onChange={switchTab}
+          ariaLabel="Mobile navigation"
+          className="mobile-view-pill pointer-events-auto w-full !flex !p-1.5 !rounded-full !border-border !bg-popover/95 backdrop-blur-xl shadow-2xl !gap-0"
+          indicatorClassName="!top-1.5 !bottom-1.5 !rounded-full !bg-primary !shadow-sm"
+          buttonClassName="flex-1 h-11 !rounded-full !px-2 !text-[13.5px] !font-medium"
+          options={[
+            { value: 'schedule', label: 'Schedule' },
+            { value: 'bills', label: 'Split Bills' },
+            { value: 'groups', label: 'Groups' },
+            { value: 'profile', label: 'Profile' },
+          ]}
+        />
       </nav>
 
       {/* Mobile Event Details Bottom Sheet */}

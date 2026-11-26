@@ -20,6 +20,7 @@ export function MobileEventDetailsSheet(props: {
   const [busy, setBusy] = createSignal(false);
   const [menuOpen, setMenuOpen] = createSignal(false);
   const [confirmDelete, setConfirmDelete] = createSignal(false);
+  const [attendeeTab, setAttendeeTab] = createSignal<RsvpStatus | 'pending'>('accepted');
   let menuRef: HTMLDivElement | undefined;
 
   onMount(() => {
@@ -34,6 +35,7 @@ export function MobileEventDetailsSheet(props: {
     void props.occ?.key;
     setMenuOpen(false);
     setConfirmDelete(false);
+    setAttendeeTab('accepted');
   });
 
   const ev = () => props.occ?.event;
@@ -69,12 +71,12 @@ export function MobileEventDetailsSheet(props: {
 
         return (
           <div
-            class="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-end"
+            class="fixed inset-0 z-50 bg-black/65 backdrop-blur-sm flex items-end mobile-backdrop-in"
             onClick={(e) => {
               if (e.target === e.currentTarget) props.onClose();
             }}
           >
-            <div class="w-full max-h-[92dvh] rounded-t-[23.5px] bg-popover border-t border-border flex flex-col overflow-hidden">
+            <div class="w-full max-h-[92dvh] rounded-t-[23.5px] bg-popover border-t border-border flex flex-col overflow-hidden mobile-sheet-up">
               {/* Drag Handle */}
               <div class="flex justify-center pt-2.5 shrink-0">
                 <div class="w-10 h-[5px] rounded-full bg-border" />
@@ -208,7 +210,7 @@ export function MobileEventDetailsSheet(props: {
                             Change <ChevronDown size={12} />
                           </button>
                           <Show when={menuOpen()}>
-                            <div class="absolute right-0 bottom-11 z-50 w-40 rounded-2xl border border-border bg-popover shadow-2xl p-1.5 space-y-0.5">
+                            <div class="absolute right-0 bottom-11 z-50 w-40 rounded-2xl border border-border bg-popover shadow-2xl p-1.5 space-y-0.5 mobile-pop-in">
                               <button
                                 type="button"
                                 onClick={() => {
@@ -247,31 +249,78 @@ export function MobileEventDetailsSheet(props: {
                   </Show>
                 </div>
 
-                {/* Attendees Card */}
+                {/* Attendees Card (Interactive tabs + named list) */}
                 <div class="rounded-[23.5px] border border-border bg-card/60 px-5 pt-4 pb-5">
                   <div class="text-xs text-muted-foreground">Attendees</div>
                   <div class="mt-3 flex gap-2 flex-wrap">
-                    <span class="h-8 px-3.5 rounded-full bg-primary text-primary-foreground text-xs font-semibold flex items-center">
+                    <button
+                      type="button"
+                      onClick={() => setAttendeeTab('accepted')}
+                      class={`h-8 px-3.5 rounded-full text-xs font-semibold flex items-center transition-colors ${
+                        attendeeTab() === 'accepted'
+                          ? 'bg-primary text-primary-foreground'
+                          : 'border border-border text-muted-foreground'
+                      }`}
+                    >
                       {groups().accepted.length} Accepted
-                    </span>
-                    <span class="h-8 px-3.5 rounded-full border border-border text-xs font-medium flex items-center">
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAttendeeTab('tentative')}
+                      class={`h-8 px-3.5 rounded-full text-xs font-semibold flex items-center transition-colors ${
+                        attendeeTab() === 'tentative'
+                          ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                          : 'border border-border text-muted-foreground'
+                      }`}
+                    >
                       {groups().tentative.length} Maybe
-                    </span>
-                    <span class="h-8 px-3.5 rounded-full border border-border text-xs font-medium flex items-center">
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAttendeeTab('declined')}
+                      class={`h-8 px-3.5 rounded-full text-xs font-semibold flex items-center transition-colors ${
+                        attendeeTab() === 'declined'
+                          ? 'bg-destructive/20 text-destructive border border-destructive/40'
+                          : 'border border-border text-muted-foreground'
+                      }`}
+                    >
+                      {groups().declined.length} Declined
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setAttendeeTab('pending')}
+                      class={`h-8 px-3.5 rounded-full text-xs font-semibold flex items-center transition-colors ${
+                        attendeeTab() === 'pending'
+                          ? 'bg-accent text-foreground border border-border'
+                          : 'border border-border text-muted-foreground'
+                      }`}
+                    >
                       {groups().pending.length} Pending
-                    </span>
+                    </button>
                   </div>
-                  <Show when={allAttendees().length > 0}>
-                    <div class="mt-4 flex">
-                      <For each={allAttendees().slice(0, 8)}>
+
+                  <div class="mt-3.5 space-y-2">
+                    <Show
+                      when={groups()[attendeeTab()].length > 0}
+                      fallback={
+                        <div class="text-xs text-muted-foreground py-1">
+                          No one in this list yet.
+                        </div>
+                      }
+                    >
+                      <For each={groups()[attendeeTab()]}>
                         {(m) => (
-                          <div class="-ml-2.5 first:ml-0 rounded-full ring-2 ring-popover">
-                            <AvatarBadge name={m.name} avatar={m.avatar} size={36} />
+                          <div class="flex items-center gap-2.5 py-1">
+                            <AvatarBadge name={m.name} avatar={m.avatar} size={28} />
+                            <span class="text-sm font-medium truncate">
+                              {m.name}
+                              {m.id === props.userId ? ' (you)' : ''}
+                            </span>
                           </div>
                         )}
                       </For>
-                    </div>
-                  </Show>
+                    </Show>
+                  </div>
                 </div>
               </div>
 

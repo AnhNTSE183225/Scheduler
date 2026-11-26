@@ -11,6 +11,7 @@ export function SlidingSegmentedControl<T extends string>(props: {
   onChange: (val: T) => void;
   options: SegmentOption<T>[];
   className?: string;
+  indicatorClassName?: string;
   buttonClassName?: string;
   ariaLabel?: string;
 }) {
@@ -49,7 +50,7 @@ export function SlidingSegmentedControl<T extends string>(props: {
       aria-label={props.ariaLabel}
     >
       <div
-        class="schedule-seg-indicator"
+        class={`schedule-seg-indicator ${props.indicatorClassName || ''}`}
         style={{
           transform: `translateX(${indicator().left}px)`,
           width: `${indicator().width}px`,

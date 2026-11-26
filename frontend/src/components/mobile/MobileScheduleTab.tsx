@@ -14,6 +14,7 @@ import {
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Plus } from 'lucide-solid';
 import { AvatarBadge } from '@/components/schedule/AvatarBadge';
 import { getCategoryMeta } from '@/components/pickers/CategoryMeta';
+import { SlidingSegmentedControl } from '@/components/ui/SlidingSegmentedControl';
 import { getCalendarColor, getCalendarLabel } from '@/lib/calendarColors';
 import { expandEvents, getResponse, isInvited, isOccurrenceOnDay } from '@/lib/recurrence';
 import type { Occurrence, ScheduleEvent } from '@/models/schedule';
@@ -21,6 +22,7 @@ import { authStore } from '@/stores/authStore';
 import { scheduleStore } from '@/stores/scheduleStore';
 
 type MobileView = 'agenda' | 'month' | '3day';
+const VIEW_ORDER: MobileView[] = ['agenda', 'month', '3day'];
 
 const HOUR_PX = 48;
 
@@ -33,9 +35,26 @@ export function MobileScheduleTab(props: {
   const calendars = () => authStore.calendars();
   const [cursor, setCursor] = createSignal(startOfDay(new Date()));
   const [view, setView] = createSignal<MobileView>('agenda');
+  const [viewSlideDir, setViewSlideDir] = createSignal<'left' | 'right' | null>(null);
   const [hiddenIds, setHiddenIds] = createSignal<string[]>([]);
   const [calSheetOpen, setCalSheetOpen] = createSignal(false);
   const [now, setNow] = createSignal(new Date());
+
+  const switchView = (next: MobileView) => {
+    const prevIdx = VIEW_ORDER.indexOf(view());
+    const nextIdx = VIEW_ORDER.indexOf(next);
+    if (prevIdx !== nextIdx) {
+      setViewSlideDir(nextIdx > prevIdx ? 'right' : 'left');
+      setView(next);
+    }
+  };
+
+  const viewSlideClass = () =>
+    viewSlideDir() === 'right'
+      ? 'schedule-slide-from-right'
+      : viewSlideDir() === 'left'
+      ? 'schedule-slide-from-left'
+      : '';
 
   let agendaRef: HTMLDivElement | undefined;
   let didAutoScroll = false;
@@ -233,28 +252,25 @@ export function MobileScheduleTab(props: {
       </div>
 
       {/* Segmented Pill: Agenda | Month | 3-Day */}
-      <div class="mx-[18px] mt-4 flex p-1 rounded-full border border-border bg-card/40 text-sm font-medium">
-        <For each={(['agenda', 'month', '3day'] as MobileView[])}>
-          {(m) => (
-            <button
-              type="button"
-              onClick={() => setView(m)}
-              class={`flex-1 h-10 rounded-full grid place-items-center transition-colors ${
-                view() === m
-                  ? 'bg-primary text-primary-foreground font-semibold'
-                  : 'text-muted-foreground'
-              }`}
-            >
-              {m === 'agenda' ? 'Agenda' : m === 'month' ? 'Month' : '3-Day'}
-            </button>
-          )}
-        </For>
-      </div>
+      <SlidingSegmentedControl
+        value={view()}
+        onChange={switchView}
+        ariaLabel="Schedule view"
+        className="mobile-view-pill mx-[18px] mt-4 !flex !p-1 !rounded-full !border-border !bg-card/40 !gap-0"
+        indicatorClassName="!top-1 !bottom-1 !rounded-full !bg-primary !shadow-sm"
+        buttonClassName="flex-1 h-10 !rounded-full !text-sm !font-medium"
+        options={[
+          { value: 'agenda', label: 'Agenda' },
+          { value: 'month', label: 'Month' },
+          { value: '3day', label: '3-Day' },
+        ]}
+      />
 
       {/* BODY */}
-      <div class="px-[18px] pb-40 flex-1" ref={agendaRef}>
+      <div class="px-[18px] pb-40 flex-1 overflow-x-hidden" ref={agendaRef}>
         {/* AGENDA VIEW */}
         <Show when={view() === 'agenda'}>
+          <div class={viewSlideClass()}>
           <Show
             when={agendaGroups().length > 0}
             fallback={
@@ -349,11 +365,12 @@ export function MobileScheduleTab(props: {
               )}
             </For>
           </Show>
+          </div>
         </Show>
 
         {/* MONTH VIEW: Clean dot grid + selected day's agenda underneath */}
         <Show when={view() === 'month'}>
-          <div class="mt-5 rounded-[23.5px] border border-border bg-card/50 p-4">
+          <div class={`mt-5 rounded-[23.5px] border border-border bg-card/50 p-4 ${viewSlideClass()}`}>
             <div class="flex items-center justify-between mb-3">
               <button
                 type="button"
@@ -455,7 +472,7 @@ export function MobileScheduleTab(props: {
 
         {/* 3-DAY VIEW: Rolling 3 columns */}
         <Show when={view() === '3day'}>
-          <div class="mt-5 rounded-[23.5px] border border-border bg-card/50 overflow-hidden">
+          <div class={`mt-5 rounded-[23.5px] border border-border bg-card/50 overflow-hidden ${viewSlideClass()}`}>
             <div class="grid grid-cols-[44px_repeat(3,1fr)] border-b border-border py-2.5 text-center text-xs font-semibold">
               <span />
               <For each={threeDays()}>
@@ -537,12 +554,12 @@ export function MobileScheduleTab(props: {
       {/* Calendar Filter Bottom Sheet */}
       <Show when={calSheetOpen()}>
         <div
-          class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end"
+          class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end mobile-backdrop-in"
           onClick={(e) => {
             if (e.target === e.currentTarget) setCalSheetOpen(false);
           }}
         >
-          <div class="w-full rounded-t-[23.5px] bg-popover border-t border-border p-5 pb-[max(20px,env(safe-area-inset-bottom))] space-y-4">
+          <div class="w-full rounded-t-[23.5px] bg-popover border-t border-border p-5 pb-[max(20px,env(safe-area-inset-bottom))] space-y-4 mobile-sheet-up">
             <div class="w-10 h-1 rounded-full bg-border mx-auto" />
             <div class="flex items-center justify-between">
               <span class="text-base font-bold">Calendars</span>

@@ -190,12 +190,12 @@ export function MobileGroupsTab() {
       {/* Group Selector Sheet */}
       <Show when={pickerOpen()}>
         <div
-          class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end"
+          class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end mobile-backdrop-in"
           onClick={(e) => {
             if (e.target === e.currentTarget) setPickerOpen(false);
           }}
         >
-          <div class="w-full rounded-t-[23.5px] bg-popover border-t border-border p-5 pb-[max(20px,env(safe-area-inset-bottom))] space-y-3">
+          <div class="w-full rounded-t-[23.5px] bg-popover border-t border-border p-5 pb-[max(20px,env(safe-area-inset-bottom))] space-y-3 mobile-sheet-up">
             <div class="w-10 h-1 rounded-full bg-border mx-auto" />
             <div class="text-base font-bold">Select Group</div>
             <div class="space-y-1 max-h-64 overflow-y-auto">
@@ -224,14 +224,14 @@ export function MobileGroupsTab() {
       {/* Create / Join Action Bottom Sheet */}
       <Show when={actionSheet()}>
         <div
-          class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end"
+          class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end mobile-backdrop-in"
           onClick={(e) => {
             if (e.target === e.currentTarget) setActionSheet(null);
           }}
         >
           <form
             onSubmit={(e) => void (actionSheet() === 'create' ? handleCreate(e) : handleJoin(e))}
-            class="w-full rounded-t-[23.5px] bg-popover border-t border-border p-5 pb-[max(20px,env(safe-area-inset-bottom))] space-y-4"
+            class="w-full rounded-t-[23.5px] bg-popover border-t border-border p-5 pb-[max(20px,env(safe-area-inset-bottom))] space-y-4 mobile-sheet-up"
           >
             <div class="w-10 h-1 rounded-full bg-border mx-auto" />
             <div class="text-base font-bold">
