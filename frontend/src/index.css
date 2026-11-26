@@ -640,10 +640,10 @@
 }
 
 .schedule-slide-from-right {
-  animation: scheduleSlideFromRight 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: scheduleSlideFromRight 0.22s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 .schedule-slide-from-left {
-  animation: scheduleSlideFromLeft 0.22s cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation: scheduleSlideFromLeft 0.22s cubic-bezier(0.16, 1, 0.3, 1) backwards;
 }
 
 @keyframes scheduleSlideFromRight {

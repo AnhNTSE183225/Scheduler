@@ -36,10 +36,10 @@ export function MobileAppShell() {
 
   const tabSlideClass = () =>
     slideDir() === 'right'
-      ? 'flex-1 flex flex-col schedule-slide-from-right'
+      ? 'flex-1 min-h-0 flex flex-col overflow-hidden schedule-slide-from-right'
       : slideDir() === 'left'
-      ? 'flex-1 flex flex-col schedule-slide-from-left'
-      : 'flex-1 flex flex-col';
+      ? 'flex-1 min-h-0 flex flex-col overflow-hidden schedule-slide-from-left'
+      : 'flex-1 min-h-0 flex flex-col overflow-hidden';
 
   createEffect(
     on(
@@ -51,8 +51,8 @@ export function MobileAppShell() {
   );
 
   return (
-    <div class="mobile-shell min-h-[100dvh] flex flex-col bg-background text-foreground">
-      <div class="flex-1 flex flex-col overflow-x-hidden">
+    <div class="mobile-shell h-[100dvh] overflow-hidden flex flex-col bg-background text-foreground">
+      <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
         <Show when={tab() === 'schedule'}>
           <div class={tabSlideClass()}>
             <MobileScheduleTab
@@ -89,7 +89,7 @@ export function MobileAppShell() {
       {/* Floating Capsule Bottom Tab Bar */}
       <nav
         aria-label="Mobile navigation"
-        class="fixed inset-x-0 bottom-0 z-40 px-4 pb-[max(18px,env(safe-area-inset-bottom))] pointer-events-none"
+        class="fixed inset-x-0 bottom-0 z-30 px-4 pb-[max(18px,env(safe-area-inset-bottom))] pointer-events-none"
       >
         <SlidingSegmentedControl
           value={tab()}

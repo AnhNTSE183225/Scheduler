@@ -258,9 +258,9 @@ export function MobileSplitBillsTab(props: {
   };
 
   return (
-    <div class="flex flex-col min-h-full">
+    <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Header: Title + Group Pill */}
-      <div class="px-6 pt-5 pb-2 flex items-center justify-between gap-3">
+      <div class="px-6 pt-5 pb-2 flex items-center justify-between gap-3 shrink-0">
         <h1 class="text-[21.5px] leading-[26.5px] font-bold">Split Bills</h1>
         <button
           type="button"
@@ -275,7 +275,7 @@ export function MobileSplitBillsTab(props: {
       </div>
 
       {/* Content */}
-      <div class="px-[18px] pt-3 pb-44 flex flex-col gap-[18px]">
+      <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-[18px] pt-3 pb-44 flex flex-col gap-[18px]">
         {/* Hero Balance Card */}
         <div class="rounded-[23.5px] border border-border bg-card/60 pt-4 px-[21.5px] pb-5">
           <div class="text-[14.5px] text-muted-foreground">You owe</div>
@@ -354,7 +354,7 @@ export function MobileSplitBillsTab(props: {
       </div>
 
       {/* Docked "+ New Split Bill" pill above floating capsule bar */}
-      <div class="fixed inset-x-0 bottom-[84px] z-30 px-4">
+      <div class="fixed inset-x-0 bottom-[84px] z-20 px-4">
         <Show
           when={hasBankInfo()}
           fallback={
@@ -474,7 +474,7 @@ export function MobileSplitBillsTab(props: {
                   </button>
                 </div>
 
-                <div class="flex-1 overflow-y-auto px-[18px] pb-[max(24px,env(safe-area-inset-bottom))] space-y-4">
+                <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-[18px] pb-[max(24px,env(safe-area-inset-bottom))] space-y-4">
                   {/* Recipient View: Flattened Amount + Open Banking App + Breakdown + QR */}
                   <Show when={!isCreator() && my()}>
                     {(m) => (

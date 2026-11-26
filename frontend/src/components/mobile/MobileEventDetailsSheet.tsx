@@ -101,7 +101,7 @@ export function MobileEventDetailsSheet(props: {
               </div>
 
               {/* Scrollable Cards */}
-              <div class="flex-1 overflow-y-auto px-[18px] py-3 space-y-4">
+              <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-[18px] py-3 space-y-4">
                 {/* Date Card */}
                 <div class="rounded-[23.5px] border border-border bg-card/60 px-5 py-4 flex gap-3 items-start">
                   <Calendar size={18} class="text-primary mt-0.5 shrink-0" />

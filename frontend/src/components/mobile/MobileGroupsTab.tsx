@@ -80,9 +80,9 @@ export function MobileGroupsTab() {
   };
 
   return (
-    <div class="flex flex-col min-h-full px-[18px] pt-5 pb-36">
+    <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Header: Group Management + Selector Pill */}
-      <div class="px-2 flex items-center justify-between gap-2">
+      <div class="px-6 pt-5 pb-2 flex items-center justify-between gap-2 shrink-0">
         <h1 class="text-[21.5px] leading-[26.5px] font-bold">Group Management</h1>
         <button
           type="button"
@@ -95,6 +95,9 @@ export function MobileGroupsTab() {
           <ChevronDown size={13} class="text-muted-foreground" />
         </button>
       </div>
+
+      {/* Scrollable Content */}
+      <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-[18px] pt-2 pb-36">
 
       {/* Invite Code Card */}
       <Show when={activeCal() && !activeCal()!.isPersonal}>
@@ -185,6 +188,7 @@ export function MobileGroupsTab() {
         >
           Join via Code
         </button>
+      </div>
       </div>
 
       {/* Group Selector Sheet */}

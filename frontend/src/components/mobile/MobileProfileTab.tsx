@@ -80,8 +80,8 @@ export function MobileProfileTab() {
   };
 
   return (
-    <div class="flex flex-col min-h-full px-[18px] pt-5 pb-36 space-y-[18px]">
-      <div class="px-2 flex items-center justify-between">
+    <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
+      <div class="px-6 pt-5 pb-2 flex items-center justify-between shrink-0">
         <h1 class="text-[21.5px] leading-[26.5px] font-bold">Profile</h1>
         <button
           type="button"
@@ -95,6 +95,7 @@ export function MobileProfileTab() {
         </button>
       </div>
 
+      <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-[18px] pt-3 pb-36 space-y-[18px]">
       <Show when={user()}>
         {(u) => (
           <>
@@ -255,6 +256,7 @@ export function MobileProfileTab() {
           </>
         )}
       </Show>
+      </div>
     </div>
   );
 }

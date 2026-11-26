@@ -184,9 +184,9 @@ export function MobileScheduleTab(props: {
   };
 
   return (
-    <div class="flex flex-col min-h-full">
+    <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
       {/* Top Bar: Group Pill + Avatar Circle */}
-      <div class="flex items-center justify-between px-[18px] pt-3 pb-2">
+      <div class="flex items-center justify-between px-[18px] pt-3 pb-2 shrink-0">
         <button
           type="button"
           onClick={() => setCalSheetOpen(true)}
@@ -207,7 +207,7 @@ export function MobileScheduleTab(props: {
       </div>
 
       {/* 7-Day Strip */}
-      <div class="flex justify-between px-[18px] pt-2">
+      <div class="flex justify-between px-[18px] pt-2 shrink-0">
         <For each={weekDays()}>
           {(d) => {
             const isSelected = () => isSameDay(d, cursor());
@@ -256,7 +256,7 @@ export function MobileScheduleTab(props: {
         value={view()}
         onChange={switchView}
         ariaLabel="Schedule view"
-        className="mobile-view-pill mx-[18px] mt-4 !flex !p-1 !rounded-full !border-border !bg-card/40 !gap-0"
+        className="mobile-view-pill shrink-0 mx-[18px] mt-4 !flex !p-1 !rounded-full !border-border !bg-card/40 !gap-0"
         indicatorClassName="!top-1 !bottom-1 !rounded-full !bg-primary !shadow-sm"
         buttonClassName="flex-1 h-10 !rounded-full !text-sm !font-medium"
         options={[
@@ -267,10 +267,10 @@ export function MobileScheduleTab(props: {
       />
 
       {/* BODY */}
-      <div class="px-[18px] pb-40 flex-1 overflow-x-hidden" ref={agendaRef}>
+      <div class="flex-1 min-h-0 flex flex-col overflow-hidden px-[18px]" ref={agendaRef}>
         {/* AGENDA VIEW */}
         <Show when={view() === 'agenda'}>
-          <div class={viewSlideClass()}>
+          <div class={`flex-1 min-h-0 overflow-y-auto overscroll-contain pb-40 ${viewSlideClass()}`}>
           <Show
             when={agendaGroups().length > 0}
             fallback={
@@ -368,9 +368,10 @@ export function MobileScheduleTab(props: {
           </div>
         </Show>
 
-        {/* MONTH VIEW: Clean dot grid + selected day's agenda underneath */}
+        {/* MONTH VIEW: Static dot grid + scrollable selected day's agenda underneath */}
         <Show when={view() === 'month'}>
-          <div class={`mt-5 rounded-[23.5px] border border-border bg-card/50 p-4 ${viewSlideClass()}`}>
+          <div class={`flex-1 min-h-0 flex flex-col overflow-hidden ${viewSlideClass()}`}>
+          <div class="mt-5 shrink-0 rounded-[23.5px] border border-border bg-card/50 p-4">
             <div class="flex items-center justify-between mb-3">
               <button
                 type="button"
@@ -434,6 +435,7 @@ export function MobileScheduleTab(props: {
             </div>
           </div>
 
+          <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-40">
           <p class="mt-5 px-3 text-[13.5px] font-medium text-muted-foreground">
             {format(cursor(), 'EEE, MMM d')}
           </p>
@@ -468,12 +470,14 @@ export function MobileScheduleTab(props: {
               </For>
             </div>
           </Show>
+          </div>
+          </div>
         </Show>
 
         {/* 3-DAY VIEW: Rolling 3 columns */}
         <Show when={view() === '3day'}>
-          <div class={`mt-5 rounded-[23.5px] border border-border bg-card/50 overflow-hidden ${viewSlideClass()}`}>
-            <div class="grid grid-cols-[44px_repeat(3,1fr)] border-b border-border py-2.5 text-center text-xs font-semibold">
+          <div class={`mt-5 mb-28 flex-1 min-h-0 rounded-[23.5px] border border-border bg-card/50 overflow-hidden flex flex-col ${viewSlideClass()}`}>
+            <div class="grid grid-cols-[44px_repeat(3,1fr)] border-b border-border py-2.5 text-center text-xs font-semibold shrink-0">
               <span />
               <For each={threeDays()}>
                 {(d) => (
@@ -483,7 +487,7 @@ export function MobileScheduleTab(props: {
                 )}
               </For>
             </div>
-            <div class="max-h-[55dvh] overflow-y-auto">
+            <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain">
               <div class="grid grid-cols-[44px_repeat(3,1fr)] relative" style={{ height: `${HOUR_PX * 24}px` }}>
                 <div class="relative border-r border-border/60 text-[10px] font-mono text-muted-foreground">
                   <For each={Array.from({ length: 24 }, (_, h) => h)}>
@@ -546,7 +550,7 @@ export function MobileScheduleTab(props: {
         type="button"
         onClick={() => props.onCreateEvent(cursor())}
         aria-label="New event"
-        class="fixed right-4 bottom-24 z-30 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-2xl grid place-items-center active:scale-95 transition-transform"
+        class="fixed right-4 bottom-24 z-20 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-2xl grid place-items-center active:scale-95 transition-transform"
       >
         <Plus size={24} />
       </button>
