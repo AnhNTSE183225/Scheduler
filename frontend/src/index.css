@@ -656,6 +656,31 @@
 }
 
 /* Mobile UI spring animations & tactile feedback (scoped to .mobile-shell) */
+html:has(.mobile-shell),
+body:has(.mobile-shell) {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
+.mobile-shell {
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
+.mobile-shell .overflow-y-auto {
+  touch-action: pan-y;
+  -webkit-overflow-scrolling: touch;
+}
+
+.mobile-shell .overflow-x-auto {
+  touch-action: pan-x;
+  -webkit-overflow-scrolling: touch;
+}
+
 .mobile-shell button:not(:disabled),
 .mobile-shell a[href] {
   transition:
@@ -681,6 +706,7 @@
 
 .mobile-backdrop-in {
   animation: mobileBackdropIn 0.22s ease-out both;
+  overscroll-behavior: none;
 }
 .mobile-sheet-up {
   animation: mobileSheetUp 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;

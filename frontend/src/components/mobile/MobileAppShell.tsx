@@ -1,4 +1,4 @@
-import { Show, createEffect, createSignal, on } from 'solid-js';
+import { Show, createEffect, createSignal, on, onCleanup, onMount } from 'solid-js';
 import { EventEditorDialog } from '@/components/schedule/EventEditorDialog';
 import { SlidingSegmentedControl } from '@/components/ui/SlidingSegmentedControl';
 import { MobileEventDetailsSheet } from './MobileEventDetailsSheet';
@@ -50,8 +50,30 @@ export function MobileAppShell() {
     ),
   );
 
+  // Strictly block iOS/mobile root-viewport rubber-band scrolling outside internal scroll containers.
+  onMount(() => {
+    const preventGlobalTouchScroll = (e: TouchEvent) => {
+      if (e.touches.length > 1) return;
+      let el = e.target as HTMLElement | null;
+      while (el && el !== document.body && el !== document.documentElement) {
+        const style = window.getComputedStyle(el);
+        const canScrollY =
+          (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+          el.scrollHeight > el.clientHeight;
+        const canScrollX =
+          (style.overflowX === 'auto' || style.overflowX === 'scroll') &&
+          el.scrollWidth > el.clientWidth;
+        if (canScrollY || canScrollX) return;
+        el = el.parentElement;
+      }
+      e.preventDefault();
+    };
+    document.addEventListener('touchmove', preventGlobalTouchScroll, { passive: false });
+    onCleanup(() => document.removeEventListener('touchmove', preventGlobalTouchScroll));
+  });
+
   return (
-    <div class="mobile-shell h-[100dvh] overflow-hidden flex flex-col bg-background text-foreground">
+    <div class="mobile-shell fixed inset-0 overflow-hidden flex flex-col bg-background text-foreground">
       <div class="flex-1 min-h-0 flex flex-col overflow-hidden">
         <Show when={tab() === 'schedule'}>
           <div class={tabSlideClass()}>

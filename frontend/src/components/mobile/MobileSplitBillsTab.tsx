@@ -355,7 +355,7 @@ export function MobileSplitBillsTab(props: {
       </div>
 
       {/* Docked "+ New Split Bill" pill above floating capsule bar */}
-      <div class="fixed inset-x-0 bottom-[84px] z-20 px-4">
+      <div class="fixed inset-x-0 bottom-[calc(max(18px,env(safe-area-inset-bottom))+68px)] z-20 px-4">
         <Show
           when={hasBankInfo()}
           fallback={

@@ -550,7 +550,7 @@ export function MobileScheduleTab(props: {
         type="button"
         onClick={() => props.onCreateEvent(cursor())}
         aria-label="New event"
-        class="fixed right-4 bottom-24 z-20 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-2xl grid place-items-center active:scale-95 transition-transform"
+        class="fixed right-4 bottom-[calc(max(18px,env(safe-area-inset-bottom))+70px)] z-20 w-14 h-14 rounded-full bg-primary text-primary-foreground shadow-2xl grid place-items-center active:scale-95 transition-transform"
       >
         <Plus size={24} />
       </button>
