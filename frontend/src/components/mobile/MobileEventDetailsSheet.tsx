@@ -60,8 +60,8 @@ export function MobileEventDetailsSheet(props: {
   return (
     <Show when={props.occ && ev()}>
       {(occ) => {
-        const event = ev()!;
-        const cat = getCategoryMeta(event.category, event.title, event.description);
+        const event = occ;
+        const cat = () => getCategoryMeta(event().category, event().title, event().description);
         const allAttendees = () => [
           ...groups().accepted,
           ...groups().tentative,
@@ -85,9 +85,9 @@ export function MobileEventDetailsSheet(props: {
               {/* Title + Category Tag + Circular Close */}
               <div class="flex items-start justify-between px-6 pt-4 pb-2 gap-3 shrink-0">
                 <div class="min-w-0">
-                  <h2 class="text-[26px] leading-[32px] font-bold">{event.title}</h2>
+                  <h2 class="text-[26px] leading-[32px] font-bold">{event().title}</h2>
                   <div class="mt-2 inline-flex items-center h-[30px] px-3 rounded-full border border-border text-xs font-medium text-muted-foreground">
-                    {cat.label}
+                    {cat().label}
                   </div>
                 </div>
                 <button
@@ -113,7 +113,7 @@ export function MobileEventDetailsSheet(props: {
                 </div>
 
                 {/* Location Card */}
-                <Show when={event.location}>
+                <Show when={event().location}>
                   {(loc) => (
                     <div class="rounded-[23.5px] border border-border bg-card/60 px-5 pt-4 pb-5">
                       <div class="text-xs text-muted-foreground">Location</div>

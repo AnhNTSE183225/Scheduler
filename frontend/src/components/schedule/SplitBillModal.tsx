@@ -22,6 +22,7 @@ import {
   fetchVietQrBanks,
   formatVnd,
   generateVietQrDataUrl,
+  saveQrImage,
   type VietQrApp,
   type VietQrBank,
 } from '@/lib/vietqr';
@@ -682,32 +683,33 @@ export function SplitBillModal(props: {
         {/* DETAIL / RECEIPT + VIETQR VIEW */}
         <Show when={mode() === 'detail' && activeBill()}>
           {(b) => {
-            const bill = b();
-            const isCreator = () => bill.creatorId === user()?.id;
-            const myShare = () => bill.shares.find((s) => s.userId === user()?.id);
+            const bill = b;
+            const isCreator = () => bill().creatorId === user()?.id;
+            const myShare = () => bill().shares.find((s) => s.userId === user()?.id);
             const shareName = (uid: string) =>
-              bill.shares.find((s) => s.userId === uid)?.displayName || 'Member';
+              bill().shares.find((s) => s.userId === uid)?.displayName || 'Member';
 
             return (
               <div class="space-y-5">
                 <div class="flex items-center justify-between gap-2 text-xs text-muted-foreground flex-wrap">
                   <span>
-                    {calNameForId(bill.calendarId)} · Requested by{' '}
+                    {calNameForId(bill().calendarId)} · Requested by{' '}
                     <strong class="text-foreground">
-                      {isCreator() ? 'you' : bill.creatorName}
+                      {isCreator() ? 'you' : bill().creatorName}
                     </strong>
                   </span>
-                  <span>{new Date(bill.createdAt * 1000).toLocaleDateString()}</span>
+                  <span>{new Date(bill().createdAt * 1000).toLocaleDateString()}</span>
                 </div>
 
                 {/* Receipt / Bill Breakdown */}
                 <Show
                   when={isCreator()}
                   fallback={(() => {
-                    const uid = user()?.id || '';
-                    const myItems = bill.items
+                            const myItems = () => {
+              const uid = user()?.id || '';
+              return bill().items
                       .map((it) => {
-                        const targets = it.scope === 'all' ? bill.participantIds : it.memberIds;
+                        const targets = it.scope === 'all' ? bill().participantIds : it.memberIds;
                         const idx = targets.indexOf(uid);
                         if (idx === -1 || targets.length === 0) return null;
                         const base = Math.trunc(it.amountVnd / targets.length);
@@ -724,6 +726,7 @@ export function SplitBillModal(props: {
                         };
                       })
                       .filter((x): x is NonNullable<typeof x> => x !== null);
+            };
 
                     return (
                       <div class="p-4 rounded-xl border border-border bg-card/70 space-y-3">
@@ -732,7 +735,7 @@ export function SplitBillModal(props: {
                         </div>
 
                         <div class="space-y-2">
-                          <For each={myItems}>
+                          <For each={myItems()}>
                             {(it) => {
                               const isNeg = it.shareAmount < 0;
                               return (
@@ -782,7 +785,7 @@ export function SplitBillModal(props: {
                     </div>
 
                     <div class="space-y-2">
-                      <For each={bill.items}>
+                      <For each={bill().items}>
                         {(it) => {
                           const isNeg = it.amountVnd < 0;
                           return (
@@ -814,7 +817,7 @@ export function SplitBillModal(props: {
                       <span class="text-xs font-bold uppercase tracking-wider text-muted-foreground">
                         Total
                       </span>
-                      <span class="text-base font-bold font-mono">{formatVnd(bill.totalVnd)}</span>
+                      <span class="text-base font-bold font-mono">{formatVnd(bill().totalVnd)}</span>
                     </div>
                   </div>
                 </Show>
@@ -830,13 +833,13 @@ export function SplitBillModal(props: {
                         </div>
                       </div>
                       <div class="text-right text-xs">
-                        <div class="font-semibold">{bankNameForBin(bill.bankBin)}</div>
+                        <div class="font-semibold">{bankNameForBin(bill().bankBin)}</div>
                         <button
                           type="button"
-                          onClick={() => void copyAccount(bill.bankAccountNumber)}
+                          onClick={() => void copyAccount(bill().bankAccountNumber)}
                           class="inline-flex items-center gap-1 font-mono text-primary hover:underline mt-0.5"
                         >
-                          {bill.bankAccountNumber}
+                          {bill().bankAccountNumber}
                           <Show when={copiedAcc()} fallback={<Copy size={11} />}>
                             <Check size={11} />
                           </Show>
@@ -887,11 +890,11 @@ export function SplitBillModal(props: {
                           <a
                             href={buildVietQrDeeplink({
                               appId: selectedAppId(),
-                              accountNumber: bill.bankAccountNumber,
-                              bankCode: bankCodeForBin(bill.bankBin),
+                              accountNumber: bill().bankAccountNumber,
+                              bankCode: bankCodeForBin(bill().bankBin),
                               amountVnd: myShare()!.amountVnd,
-                              memo: `${bill.title} - ${user()?.displayName || ''}`,
-                              accountName: bill.creatorName,
+                              memo: `${bill().title} - ${user()?.displayName || ''}`,
+                              accountName: bill().creatorName,
                             })}
                             target="_blank"
                             rel="noopener noreferrer"
@@ -902,14 +905,19 @@ export function SplitBillModal(props: {
                           </a>
                         </Show>
                         <Show when={qrUrl()}>
-                          <a
-                            href={qrUrl()}
-                            download={`vietqr-${bill.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.png`}
+                          <button
+                            type="button"
+                            onClick={() =>
+                              void saveQrImage(
+                                qrUrl(),
+                                `vietqr-${bill().title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}.png`,
+                              )
+                            }
                             class="h-9 px-3 rounded-lg border border-border bg-card/80 hover:bg-accent text-xs font-medium inline-flex items-center justify-center gap-1.5 shrink-0"
                           >
                             <Download size={13} />
                             Save QR
-                          </a>
+                          </button>
                         </Show>
                       </div>
                       <Show
@@ -938,7 +946,7 @@ export function SplitBillModal(props: {
                     </div>
 
                     <div class="space-y-2">
-                      <For each={bill.shares.filter((s) => s.userId !== bill.creatorId)}>
+                      <For each={bill().shares.filter((s) => s.userId !== bill().creatorId)}>
                         {(s) => (
                           <div class="flex items-center justify-between gap-3 py-1.5 border-b border-border/50 last:border-0">
                             <div class="min-w-0">
@@ -953,7 +961,7 @@ export function SplitBillModal(props: {
                               onClick={async () => {
                                 setBusyId(s.userId);
                                 try {
-                                  await billStore.togglePaid(bill.id, s.userId, !s.paid);
+                                  await billStore.togglePaid(bill().id, s.userId, !s.paid);
                                 } finally {
                                   setBusyId(null);
                                 }
@@ -997,7 +1005,7 @@ export function SplitBillModal(props: {
                         <button
                           type="button"
                           onClick={async () => {
-                            await billStore.remove(bill.id);
+                            await billStore.remove(bill().id);
                             setMode('list');
                           }}
                           class="h-8 px-3 rounded-lg bg-destructive text-destructive-foreground text-xs font-semibold"

@@ -114,3 +114,49 @@ export async function generateVietQrDataUrl(params: {
   }
   return url;
 }
+
+function dataUrlToBlob(dataUrl: string): Blob {
+  const [header = '', b64 = ''] = dataUrl.split(',');
+  const mimeMatch = header.match(/data:([^;]+)/);
+  const mime = mimeMatch?.[1] || 'image/png';
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], { type: mime });
+}
+
+/**
+ * Save a QR data URL as a PNG image.
+ * On iOS/iPadOS Safari & PWAs, `<a download>` on `data:` URLs fails silently or cannot
+ * save to Photos, so we invoke the native Share Sheet (`navigator.share({ files })` ->
+ * "Save Image") synchronously within the user gesture.
+ */
+export async function saveQrImage(dataUrl: string, filename: string): Promise<void> {
+  const blob = dataUrlToBlob(dataUrl);
+  const isIos =
+    typeof navigator !== 'undefined' &&
+    (/iPhone|iPad|iPod/i.test(navigator.userAgent) ||
+      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+
+  if (isIos && typeof navigator.share === 'function' && typeof File === 'function') {
+    const file = new File([blob], filename, { type: blob.type || 'image/png' });
+    if (!navigator.canShare || navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file], title: 'VietQR' });
+        return;
+      } catch (err) {
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+      }
+    }
+  }
+
+  const blobUrl = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = blobUrl;
+  link.download = filename;
+  link.rel = 'noopener';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 1500);
+}

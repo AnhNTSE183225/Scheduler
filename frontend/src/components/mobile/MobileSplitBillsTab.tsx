@@ -21,6 +21,7 @@ import {
   fetchVietQrBanks,
   formatVnd,
   generateVietQrDataUrl,
+  saveQrImage,
   type VietQrApp,
   type VietQrBank,
 } from '@/lib/vietqr';
@@ -427,15 +428,15 @@ export function MobileSplitBillsTab(props: {
       {/* Bill Payment / Detail Bottom Sheet */}
       <Show when={activeBill()}>
         {(b) => {
-          const bill = b();
-          const isCreator = () => bill.creatorId === user()?.id;
-          const my = () => bill.shares.find((s) => s.userId === user()?.id);
+          const bill = b;
+          const isCreator = () => bill().creatorId === user()?.id;
+          const my = () => bill().shares.find((s) => s.userId === user()?.id);
           const shareName = (uid: string) =>
-            bill.shares.find((s) => s.userId === uid)?.displayName || 'Member';
+            bill().shares.find((s) => s.userId === uid)?.displayName || 'Member';
           const uid = user()?.id || '';
-          const myItems = bill.items
+          const myItems = () => bill().items
             .map((it) => {
-              const targets = it.scope === 'all' ? bill.participantIds : it.memberIds;
+              const targets = it.scope === 'all' ? bill().participantIds : it.memberIds;
               const idx = targets.indexOf(uid);
               if (idx === -1 || targets.length === 0) return null;
               const base = Math.trunc(it.amountVnd / targets.length);
@@ -459,9 +460,9 @@ export function MobileSplitBillsTab(props: {
                 </div>
                 <div class="px-6 pt-3 pb-3 flex items-start justify-between gap-3 shrink-0">
                   <div class="min-w-0">
-                    <h2 class="text-2xl font-bold truncate">{bill.title}</h2>
+                    <h2 class="text-2xl font-bold truncate">{bill().title}</h2>
                     <div class="text-xs text-muted-foreground mt-0.5">
-                      {calNameForId(bill.calendarId)} · {isCreator() ? 'Created by you' : `By ${bill.creatorName}`}
+                      {calNameForId(bill().calendarId)} · {isCreator() ? 'Created by you' : `By ${bill().creatorName}`}
                     </div>
                   </div>
                   <button
@@ -489,17 +490,17 @@ export function MobileSplitBillsTab(props: {
                                 </div>
                               </div>
                               <div class="text-right text-xs">
-                                <div class="font-semibold">{bankNameForBin(bill.bankBin)}</div>
+                                <div class="font-semibold">{bankNameForBin(bill().bankBin)}</div>
                                 <button
                                   type="button"
                                   onClick={async () => {
-                                    await navigator.clipboard.writeText(bill.bankAccountNumber);
+                                    await navigator.clipboard.writeText(bill().bankAccountNumber);
                                     setCopiedAcc(true);
                                     setTimeout(() => setCopiedAcc(false), 2000);
                                   }}
                                   class="inline-flex items-center gap-1 font-mono text-primary mt-0.5"
                                 >
-                                  {bill.bankAccountNumber}
+                                  {bill().bankAccountNumber}
                                   <Show when={copiedAcc()} fallback={<Copy size={11} />}>
                                     <Check size={11} />
                                   </Show>
@@ -534,11 +535,11 @@ export function MobileSplitBillsTab(props: {
                                 <a
                                   href={buildVietQrDeeplink({
                                     appId: selectedAppId(),
-                                    accountNumber: bill.bankAccountNumber,
-                                    bankCode: bankCodeForBin(bill.bankBin),
+                                    accountNumber: bill().bankAccountNumber,
+                                    bankCode: bankCodeForBin(bill().bankBin),
                                     amountVnd: m().amountVnd,
-                                    memo: `${bill.title} - ${user()?.displayName || ''}`,
-                                    accountName: bill.creatorName,
+                                    memo: `${bill().title} - ${user()?.displayName || ''}`,
+                                    accountName: bill().creatorName,
                                   })}
                                   target="_blank"
                                   rel="noopener noreferrer"
@@ -548,13 +549,13 @@ export function MobileSplitBillsTab(props: {
                                 </a>
                               </Show>
                               <Show when={qrUrl()}>
-                                <a
-                                  href={qrUrl()}
-                                  download={`vietqr-${bill.id}.png`}
+                                <button
+                                  type="button"
+                                  onClick={() => void saveQrImage(qrUrl(), `vietqr-${bill().id}.png`)}
                                   class="h-12 px-4 rounded-full border border-border bg-card/80 text-xs font-semibold inline-flex items-center gap-1.5"
                                 >
                                   <Download size={14} /> Save QR
-                                </a>
+                                </button>
                               </Show>
                             </div>
 
@@ -587,7 +588,7 @@ export function MobileSplitBillsTab(props: {
                           <div class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                             Your Breakdown
                           </div>
-                          <For each={myItems}>
+                          <For each={myItems()}>
                             {(it) => (
                               <div class="flex items-start justify-between gap-3 text-sm">
                                 <div class="min-w-0">
@@ -623,7 +624,7 @@ export function MobileSplitBillsTab(props: {
                       <div class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         Bill Breakdown
                       </div>
-                      <For each={bill.items}>
+                      <For each={bill().items}>
                         {(it) => (
                           <div class="flex items-start justify-between gap-3 text-sm">
                             <div class="min-w-0">
@@ -644,7 +645,7 @@ export function MobileSplitBillsTab(props: {
                       </For>
                       <div class="pt-3 border-t border-border flex items-center justify-between">
                         <span class="text-xs font-bold uppercase text-muted-foreground">Total</span>
-                        <span class="text-lg font-bold font-mono">{formatVnd(bill.totalVnd)}</span>
+                        <span class="text-lg font-bold font-mono">{formatVnd(bill().totalVnd)}</span>
                       </div>
                     </div>
 
@@ -652,7 +653,7 @@ export function MobileSplitBillsTab(props: {
                       <div class="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                         Payment Status (Only visible to you)
                       </div>
-                      <For each={bill.shares.filter((s) => s.userId !== bill.creatorId)}>
+                      <For each={bill().shares.filter((s) => s.userId !== bill().creatorId)}>
                         {(s) => (
                           <div class="flex items-center justify-between gap-3 py-1.5 border-b border-border/50 last:border-0">
                             <div class="min-w-0">
@@ -665,7 +666,7 @@ export function MobileSplitBillsTab(props: {
                               onClick={async () => {
                                 setBusyId(s.userId);
                                 try {
-                                  await billStore.togglePaid(bill.id, s.userId, !s.paid);
+                                  await billStore.togglePaid(bill().id, s.userId, !s.paid);
                                 } finally {
                                   setBusyId(null);
                                 }
@@ -707,7 +708,7 @@ export function MobileSplitBillsTab(props: {
                           <button
                             type="button"
                             onClick={async () => {
-                              await billStore.remove(bill.id);
+                              await billStore.remove(bill().id);
                               setSelectedBillId(null);
                             }}
                             class="h-10 px-4 rounded-full bg-destructive text-destructive-foreground text-xs font-semibold"
